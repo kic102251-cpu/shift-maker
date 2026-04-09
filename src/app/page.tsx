@@ -143,8 +143,8 @@ export default function Home() {
   if(!mounted) return <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-sky-50 to-white"><p className="text-gray-400 text-lg">読み込み中...</p></div>;
 
   const tabItems:[Tab,string,string][]=[
-    ["staff","スタッフ管理","👤"],["requirements","必要人数","📋"],
-    ["prefs","勤務希望","✋"],["shift","シフト表","📅"],["report","月間レポート","📊"],
+    ["staff","スタッフ管理","👤"],["requirements","必要人数設定","📋"],
+    ["prefs","勤務希望入力","✋"],["shift","シフト表","📅"],["report","月間レポート","📊"],
   ];
 
   return (
@@ -154,8 +154,23 @@ export default function Home() {
           <div className="w-10 h-10 bg-gradient-to-br from-sky-500 to-indigo-500 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md">S</div>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-gray-800">シフトメーカー</h1>
-            <p className="text-xs text-gray-400">看護師シフト自動作成 — {staffList.length}名</p>
+            <p className="text-xs text-gray-400">看護師シフト自動作成ツール — 登録スタッフ {staffList.length}名</p>
           </div>
+        </div>
+        <div className="mt-3 bg-white/70 rounded-xl px-4 py-3 border border-sky-100">
+          <p className="text-xs font-bold text-sky-700 mb-1.5">📖 はじめての方へ — かんたん5ステップ</p>
+          <div className="flex flex-wrap gap-x-1 gap-y-1 text-[11px] text-gray-600">
+            <span className="bg-sky-50 border border-sky-200 rounded-full px-2.5 py-0.5 font-medium">❶ スタッフ登録</span>
+            <span className="text-gray-300">→</span>
+            <span className="bg-sky-50 border border-sky-200 rounded-full px-2.5 py-0.5 font-medium">❷ 必要人数を入力</span>
+            <span className="text-gray-300">→</span>
+            <span className="bg-sky-50 border border-sky-200 rounded-full px-2.5 py-0.5 font-medium">❸ 勤務希望を入力</span>
+            <span className="text-gray-300">→</span>
+            <span className="bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-0.5 font-medium text-emerald-700">❹ シフト自動作成</span>
+            <span className="text-gray-300">→</span>
+            <span className="bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-0.5 font-medium text-emerald-700">❺ 確認・手直し</span>
+          </div>
+          <p className="text-[10px] text-gray-400 mt-1.5">※ まずは「👤スタッフ管理」タブで、スタッフのお名前を登録するところから始めましょう</p>
         </div>
       </header>
 
@@ -169,12 +184,12 @@ export default function Home() {
           </select>
           <button onClick={handleGenerate}
             className="bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-6 py-2 rounded-lg text-sm font-bold shadow-md hover:shadow-lg hover:from-sky-600 hover:to-indigo-600 active:scale-[0.97] transition-all">
-            シフト生成
+            シフトを自動作成
           </button>
           {isConfirmed&&<span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full font-medium">✓ 確定済み</span>}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-          <span className="text-gray-500 font-medium text-xs">勤務種類</span>
+          <span className="text-gray-500 font-medium text-xs">使用する勤務種類</span>
           {TOGGLEABLE_SHIFTS.map(key=>(
             <label key={key} className="flex items-center gap-1.5 cursor-pointer select-none group">
               <button onClick={()=>setConfig({...config,enabledShifts:{...config.enabledShifts,[key]:!config.enabledShifts[key]}})}
@@ -223,11 +238,12 @@ function StaffPanel({staffList,setStaffList,enabledTargets}:{staffList:Staff[];s
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-gray-800">👤 スタッフ一覧 <span className="text-sm font-normal text-gray-400">({staffList.length}/{MAX_STAFF})</span></h2>
-        <button onClick={()=>setShowBulk(!showBulk)} className="bg-gray-50 text-gray-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-50 hover:text-sky-700 border border-gray-200 transition-all">一括設定</button>
+        <button onClick={()=>setShowBulk(!showBulk)} className="bg-gray-50 text-gray-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-50 hover:text-sky-700 border border-gray-200 transition-all">まとめて設定</button>
       </div>
+      <p className="text-xs text-gray-400">シフトに入るスタッフを登録します。名前の横をクリックすると、休日数や夜勤回数などの詳細設定ができます。</p>
       {showBulk&&(
         <div className="bg-gradient-to-r from-sky-50 to-indigo-50/50 rounded-xl p-4 space-y-3 border border-sky-200">
-          <h3 className="font-bold text-sky-800 text-sm">全員に同じ設定を適用</h3>
+          <h3 className="font-bold text-sky-800 text-sm">全スタッフにまとめて同じ設定を適用できます</h3>
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <div className="flex items-center gap-1"><span className="text-gray-600">月の休み</span>
               <input type="number" min={0} max={28} value={bulkOff} onChange={e=>setBulkOff(Number(e.target.value))} className="border border-gray-200 rounded-lg px-2 py-1 w-14 text-center focus:ring-2 focus:ring-sky-200 outline-none"/><span className="text-gray-400">日</span>
@@ -240,6 +256,12 @@ function StaffPanel({staffList,setStaffList,enabledTargets}:{staffList:Staff[];s
         </div>
       )}
       <div className="space-y-1.5 max-h-[65vh] overflow-y-auto">
+        {staffList.length===0&&(
+          <div className="text-center py-8 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+            <p className="text-gray-400 text-sm mb-1">まだスタッフが登録されていません</p>
+            <p className="text-gray-400 text-xs">下の入力欄にお名前を入力して「追加」ボタンを押してください</p>
+          </div>
+        )}
         {staffList.map((s,idx)=>{const badge=EMPLOYMENT_BADGE[s.employment||"fulltime"];return(
           <div key={s.id} className="border border-gray-200 rounded-lg overflow-hidden hover:border-sky-200 transition-colors">
             <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gradient-to-r hover:from-white hover:to-sky-50/40 transition-all" onClick={()=>setExpanded(expanded===s.id?null:s.id)}>
@@ -287,7 +309,7 @@ function StaffPanel({staffList,setStaffList,enabledTargets}:{staffList:Staff[];s
         );})}
       </div>
       <div className="flex items-center gap-2 pt-2">
-        <input value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addStaff()} placeholder="スタッフ名" className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-36 focus:ring-2 focus:ring-sky-200 outline-none"/>
+        <input value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addStaff()} placeholder="例: 山田 花子" className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-36 focus:ring-2 focus:ring-sky-200 outline-none"/>
         <button onClick={addStaff} className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md hover:shadow-lg active:scale-[0.97] transition-all">追加</button>
       </div>
     </div>
@@ -306,8 +328,9 @@ function ReqPanel({year,month,dailyReqs,setDailyReqs,enabledWork,nightEnabled}:{
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-gray-800">📋 必要人数設定 <span className="text-sm font-normal text-gray-400">({year}年{month}月)</span></h2>
-        <button onClick={()=>setDailyReqs({})} className="bg-gray-50 text-gray-500 border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all">リセット</button>
+        <button onClick={()=>setDailyReqs({})} className="bg-gray-50 text-gray-500 border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all">初期値に戻す</button>
       </div>
+      <p className="text-xs text-gray-400">各日に必要な勤務者数を設定します。数字を直接書き換えてください。土日・祝日はあらかじめ少なめの値が入っています。</p>
       <div className="overflow-x-auto border border-gray-200 rounded-lg">
         <table className="text-xs sm:text-sm border-collapse w-max">
           <thead><tr>
@@ -360,8 +383,13 @@ function PrefsPanel({staffList,prefs,setPrefs,year,month,enabledDisplay,nightEna
 
   return (
     <div className="space-y-3">
-      <h2 className="text-lg font-bold text-gray-800">✋ 勤務希望 <span className="text-sm font-normal text-gray-400">({year}年{month}月)</span></h2>
-      <p className="text-xs text-gray-400">セルクリックで希望選択（月5件まで）。準夜・深夜=夜勤セット扱い。</p>
+      <h2 className="text-lg font-bold text-gray-800">✋ 勤務希望入力 <span className="text-sm font-normal text-gray-400">({year}年{month}月)</span></h2>
+      <p className="text-xs text-gray-400">スタッフの希望勤務を入力します。表のマスをクリックすると勤務種類を選べます（1人あたり月5件まで）。</p>
+      {staffList.length===0&&(
+        <div className="text-center py-8 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+          <p className="text-gray-400 text-sm">先に「👤スタッフ管理」タブでスタッフを登録してください</p>
+        </div>
+      )}
       <div className="overflow-x-auto border border-gray-200 rounded-lg">
         <table className="text-[10px] sm:text-xs border-collapse w-max">
           <thead><tr>
@@ -421,7 +449,12 @@ function ShiftPanel({staffList,assignments,setAssignments,year,month,enabledAssi
   const dailyWorkers=useMemo(()=>days.map(d=>{let c=0;for(const s of staffList){const sh=getShift(s.id,d);if(sh&&WORK_SHIFTS.includes(sh))c++;}return c;}),[days,staffList,aMap]);
 
   const hasData=assignments.some(a=>a.date.startsWith(mp));
-  if(!hasData) return <div className="text-gray-400 py-12 text-center text-base">「シフト生成」ボタンを押してシフトを作成してください</div>;
+  if(!hasData) return (
+    <div className="text-center py-12">
+      <p className="text-gray-400 text-base mb-2">まだシフトが作成されていません</p>
+      <p className="text-gray-400 text-xs">画面上部の「<span className="font-bold text-sky-600">シフトを自動作成</span>」ボタンを押すと、自動でシフトが組まれます</p>
+    </div>
+  );
 
   const statCols=enabledDisplay.filter(s=>s!=="off");
   const hasCarryover=Object.keys(carryover).length>0;
@@ -431,21 +464,22 @@ function ShiftPanel({staffList,assignments,setAssignments,year,month,enabledAssi
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-bold text-gray-800">📅 シフト表 <span className="text-sm font-normal text-gray-400">({year}年{month}月)</span></h2>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">セルクリックで手動編集</span>
+          <span className="text-xs text-gray-400">マスをクリックすると手直しできます</span>
           <button onClick={onConfirm} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${isConfirmed?"bg-emerald-100 text-emerald-700 border border-emerald-300":"bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md hover:shadow-lg active:scale-[0.97]"}`}>
-            {isConfirmed?"✓ 確定済み":"確定する"}
+            {isConfirmed?"✓ 確定済み":"このシフトで確定する"}
           </button>
         </div>
       </div>
 
       {/* Warnings */}
       {warnings.length===0?(
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2 text-sm text-emerald-700 font-medium">✓ 問題ありません</div>
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2 text-sm text-emerald-700 font-medium">✓ チェック完了 — 特に気になる点はありません</div>
       ):(
         <div className="space-y-1 max-h-40 overflow-y-auto">
+          <p className="text-xs text-gray-400 mb-1">以下の点を確認してみてください（必要に応じて手直しできます）</p>
           {warnings.map((w,i)=>(
             <div key={i} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${w.level==="error"?"bg-red-50 border border-red-200 text-red-700":"bg-amber-50 border border-amber-200 text-amber-700"}`}>
-              {w.level==="error"?"⚠️":"⚡"} {w.message}
+              {w.level==="error"?"⚠ 要確認: ":"💡 お知らせ: "} {w.message}
             </div>
           ))}
         </div>
@@ -455,7 +489,7 @@ function ShiftPanel({staffList,assignments,setAssignments,year,month,enabledAssi
       {hasCarryover&&(
         <div className="border border-sky-200 rounded-lg overflow-hidden">
           <button onClick={()=>setShowCarryover(!showCarryover)} className="w-full flex items-center justify-between px-4 py-2 bg-sky-50/60 text-sky-700 text-sm font-medium hover:bg-sky-50 transition">
-            <span>📋 前月繰り越しデータ ({prevYM})</span>
+            <span>📋 前月からの引き継ぎ情報 ({prevYM}) — クリックで開閉</span>
             <svg className={`w-4 h-4 transition-transform ${showCarryover?"rotate-180":""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/></svg>
           </button>
           {showCarryover&&(
@@ -527,7 +561,8 @@ function ShiftPanel({staffList,assignments,setAssignments,year,month,enabledAssi
 
       {/* Stats */}
       <div>
-        <h3 className="text-base font-bold text-gray-800 mb-2">勤務回数集計</h3>
+        <h3 className="text-base font-bold text-gray-800 mb-1">勤務回数のまとめ</h3>
+        <p className="text-xs text-gray-400 mb-2">各スタッフの勤務回数を一覧で確認できます</p>
         <div className="overflow-x-auto border border-gray-200 rounded-lg">
           <table className="text-xs sm:text-sm border-collapse w-full">
             <thead><tr className="bg-gradient-to-r from-gray-50 to-sky-50/30">
@@ -565,8 +600,8 @@ function ReportPanel({staffList,confirmedMonths,enabledDisplay}:{staffList:Staff
 
   if(sorted.length===0) return (
     <div className="text-center py-12">
-      <p className="text-gray-400 text-base mb-2">📊 確定済みの月がありません</p>
-      <p className="text-gray-400 text-xs">シフト表タブで「確定する」ボタンを押すとレポートに反映されます</p>
+      <p className="text-gray-400 text-base mb-2">📊 まだレポートに表示できるデータがありません</p>
+      <p className="text-gray-400 text-xs">「📅シフト表」タブでシフトを確定すると、ここに月ごとの集計が表示されます</p>
     </div>
   );
 

@@ -44,7 +44,7 @@ export function checkShift(
         if (streak >= 6) {
           warnings.push({
             level: streak >= 7 ? "error" : "warn",
-            message: `${name}さんが${month}/${streakStart}〜${month}/${streakStart + streak - 1}で${streak}連勤です`,
+            message: `${name}さんが${month}/${streakStart}〜${month}/${streakStart + streak - 1}で${streak}日間の連続勤務になっています`,
           });
         }
         streak = 0;
@@ -53,7 +53,7 @@ export function checkShift(
     if (streak >= 6) {
       warnings.push({
         level: streak >= 7 ? "error" : "warn",
-        message: `${name}さんが${month}/${streakStart}〜${month}/${streakStart + streak - 1}で${streak}連勤です`,
+        message: `${name}さんが${month}/${streakStart}〜${month}/${streakStart + streak - 1}で${streak}日間の連続勤務になっています`,
       });
     }
 
@@ -64,7 +64,7 @@ export function checkShift(
         if (next && next !== "off" && next !== "req_off") {
           warnings.push({
             level: "error",
-            message: `${name}さんの${month}/${d + 1}は深夜明けですが${shiftLabel(next)}が入っています`,
+            message: `${name}さんの${month}/${d + 1}は深夜明けのため休みが望ましいですが、${shiftLabel(next)}が入っています`,
           });
         }
       }
@@ -77,7 +77,7 @@ export function checkShift(
         if (next !== "deep_night") {
           warnings.push({
             level: "error",
-            message: `${name}さんの${month}/${d}は準夜ですが翌日が深夜ではありません`,
+            message: `${name}さんの${month}/${d}に準夜が入っていますが、翌日が深夜になっていません（通常は準夜→深夜→休みのセットです）`,
           });
         }
       }
@@ -86,7 +86,7 @@ export function checkShift(
     if (row.get(numDays) === "semi_night") {
       warnings.push({
         level: "error",
-        message: `${name}さんの${month}/${numDays}（月末）に準夜が入っています`,
+        message: `${name}さんの${month}/${numDays}（月末最終日）に準夜が入っています。翌月への影響をご確認ください`,
       });
     }
 
@@ -100,7 +100,7 @@ export function checkShift(
     if (Math.abs(diff) >= 2) {
       warnings.push({
         level: Math.abs(diff) >= 3 ? "error" : "warn",
-        message: `${name}さんの夜勤が目標より${Math.abs(diff)}回${diff > 0 ? "多い" : "少ない"}です（目標${nightTarget}回→実績${semiCount}回）`,
+        message: `${name}さんの夜勤回数が目標と${Math.abs(diff)}回ずれています（目標${nightTarget}回 → 今月${semiCount}回）`,
       });
     }
   }

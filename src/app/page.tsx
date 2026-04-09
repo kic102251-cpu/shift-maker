@@ -152,8 +152,11 @@ export default function Home() {
   const hasStaff = staffList.length > 0;
   const hasPrefs = prefs.some(p=>p.date.startsWith(mp));
   const hasShiftData = assignments.some(a=>a.date.startsWith(mp));
+  const hasAnyEnabled = TOGGLEABLE_SHIFTS.some(k=>config.enabledShifts[k]);
+  const canGenerate = hasStaff && hasAnyEnabled;
+  const disabledReason = !hasStaff?"スタッフを登録してください":!hasAnyEnabled?"使用する勤務種類を1つ以上選んでください":"";
   const currentStep = !hasStaff ? 1 : !hasShiftData && !hasPrefs ? 2 : !hasShiftData ? 3 : 4;
-  const nextHint: string = currentStep===1?"まずスタッフを登録してください":currentStep===2?"必要人数を確認し、勤務希望を入力しましょう":currentStep===3?"「シフトを自動作成」ボタンを押してみましょう":"シフト完成！ マスをクリックして手直しできます";
+  const nextHint: string = currentStep===1?"まずスタッフを登録してください":currentStep===2?"必要人数を確認し、勤務希望を入力しましょう":currentStep===3?"準備ができたら、下の「シフトを自動作成」を押しましょう":"";
 
   return (
     <div className="max-w-full mx-auto px-3 sm:px-6 py-5 bg-gradient-to-b from-slate-50 to-orange-50/20 min-h-screen">
@@ -167,43 +170,33 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ── 案内バー: 1行のステップ表示 + 今やること ── */}
-      <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 bg-white/80 backdrop-blur rounded-xl border border-gray-200/80 px-4 py-2 shadow-sm">
-        <div className="flex items-center gap-1 text-xs text-gray-400 shrink-0 overflow-x-auto">
-          <span className="font-medium text-gray-500">使い方:</span>
-          {(["スタッフ登録","必要人数設定","勤務希望入力","シフト自動作成","確認・手直し"] as const).map((label,i)=>(
-            <span key={i} className="flex items-center gap-1 whitespace-nowrap">
-              {i>0&&<span className="text-gray-300">→</span>}
-              <span className={`${i+1===currentStep?"font-bold text-sky-600":i+1<currentStep?"text-emerald-500":"text-gray-400"}`}>{i+1<currentStep?"✓ ":i+1===currentStep?"▶ ":""}{label}</span>
-            </span>
-          ))}
+      {/* ── 案内バー（シフト未完成時のみ表示） ── */}
+      {nextHint&&(
+        <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 bg-white/80 backdrop-blur rounded-xl border border-gray-200/80 px-4 py-2 shadow-sm">
+          <div className="flex items-center gap-1 text-xs text-gray-400 shrink-0 overflow-x-auto">
+            <span className="font-medium text-gray-500">流れ:</span>
+            {(["スタッフ登録","必要人数設定","勤務希望入力","シフト自動作成"] as const).map((label,i)=>(
+              <span key={i} className="flex items-center gap-1 whitespace-nowrap">
+                {i>0&&<span className="text-gray-300">→</span>}
+                <span className={`${i+1===currentStep?"font-bold text-sky-600":i+1<currentStep?"text-emerald-500":"text-gray-400"}`}>{i+1<currentStep?"✓ ":i+1===currentStep?"▶ ":""}{label}</span>
+              </span>
+            ))}
+          </div>
+          <span className="hidden sm:block text-gray-200">|</span>
+          <p className="text-xs font-medium text-amber-600 truncate">👉 {nextHint}</p>
         </div>
-        <span className="hidden sm:block text-gray-200">|</span>
-        <p className={`text-xs font-medium truncate ${currentStep===4?"text-emerald-600":"text-amber-600"}`}>
-          👉 {nextHint}
-        </p>
-      </div>
+      )}
 
+      {/* ── 年月選択 + 勤務種類（生成ボタンは下部へ移動） ── */}
       <div className="bg-white/80 backdrop-blur rounded-xl border border-gray-200/80 p-4 mb-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3 mb-3">
+          <span className="text-gray-500 font-medium text-xs">対象月:</span>
           <select value={year} onChange={e=>setYear(Number(e.target.value))} className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none">
             {[2024,2025,2026,2027].map(y=><option key={y} value={y}>{y}年</option>)}
           </select>
           <select value={month} onChange={e=>setMonth(Number(e.target.value))} className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none">
             {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}
           </select>
-          <div className="flex items-center gap-2">
-            <button onClick={handleGenerate}
-              className={`px-6 py-2 rounded-lg text-sm font-bold shadow-md transition-all active:scale-[0.97] ${
-                hasStaff
-                  ?"bg-gradient-to-r from-sky-500 to-indigo-500 text-white hover:shadow-lg hover:from-sky-600 hover:to-indigo-600"
-                  :"bg-gray-300 text-gray-500 cursor-not-allowed shadow-none"
-              }`} disabled={!hasStaff}>
-              シフトを自動作成
-            </button>
-            {!hasStaff&&<span className="text-xs text-gray-400">← 先にスタッフを登録してください</span>}
-            {hasStaff&&!hasPrefs&&!hasShiftData&&<span className="text-xs text-amber-600">※ 勤務希望を入れなくても作成できます</span>}
-          </div>
           {isConfirmed&&<span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full font-medium">✓ 確定済み</span>}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
@@ -220,21 +213,40 @@ export default function Home() {
         </div>
       </div>
 
+      {/* ── タブ（ステップ番号付き） ── */}
       <div className="flex gap-1 mb-4 border-b border-gray-200/80 overflow-x-auto">
-        {tabItems.map(([key,label,icon])=>(
+        {tabItems.map(([key,label,icon],idx)=>(
           <button key={key} onClick={()=>setTab(key)}
             className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
               tab===key?"border-sky-500 text-sky-700 bg-sky-50/60 rounded-t-lg":"border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-300 rounded-t-lg"
-            }`}><span className="mr-1">{icon}</span>{label}</button>
+            }`}><span className="mr-1">{icon}</span>{idx<3?`${idx+1}. `:""}{label}</button>
         ))}
       </div>
 
+      {/* ── タブコンテンツ ── */}
       <div className="bg-white/90 backdrop-blur rounded-xl border border-gray-200/80 p-4 shadow-sm">
         {tab==="staff"&&<StaffPanel staffList={staffList} setStaffList={setStaffList} enabledTargets={enabledTargets}/>}
         {tab==="requirements"&&<ReqPanel year={year} month={month} dailyReqs={dailyReqs} setDailyReqs={setDailyReqs} enabledWork={enabledWork} nightEnabled={config.enabledShifts.night}/>}
         {tab==="prefs"&&<PrefsPanel staffList={staffList} prefs={prefs} setPrefs={setPrefs} year={year} month={month} enabledDisplay={enabledDisplay} nightEnabled={config.enabledShifts.night}/>}
         {tab==="shift"&&<ShiftPanel staffList={staffList} assignments={assignments} setAssignments={setAssignments} year={year} month={month} enabledAssign={enabledAssign} enabledDisplay={enabledDisplay} nightEnabled={config.enabledShifts.night} onConfirm={handleConfirm} isConfirmed={isConfirmed} carryover={carryover} prevYM={ym(py,pm)} prevConfirmed={prevConfirmed}/>}
         {tab==="report"&&<ReportPanel staffList={staffList} confirmedMonths={confirmedMonths} enabledDisplay={enabledDisplay}/>}
+      </div>
+
+      {/* ── シフト自動作成ボタン（入力導線の最後に配置） ── */}
+      <div className="mt-4 bg-white/90 backdrop-blur rounded-xl border border-gray-200/80 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={handleGenerate}
+            className={`px-8 py-3 rounded-xl text-base font-bold shadow-md transition-all active:scale-[0.97] ${
+              canGenerate
+                ?"bg-gradient-to-r from-sky-500 to-indigo-500 text-white hover:shadow-lg hover:from-sky-600 hover:to-indigo-600"
+                :"bg-gray-200 text-gray-400 cursor-not-allowed shadow-none"
+            }`} disabled={!canGenerate}>
+            ⚡ シフトを自動作成
+          </button>
+          {!canGenerate&&<span className="text-xs text-gray-400">← {disabledReason}</span>}
+          {canGenerate&&!hasPrefs&&!hasShiftData&&<span className="text-xs text-gray-400">※ 勤務希望を入れなくても作成できます</span>}
+          {canGenerate&&hasShiftData&&<span className="text-xs text-gray-400">※ 再度作成すると現在のシフト表は上書きされます</span>}
+        </div>
       </div>
     </div>
   );

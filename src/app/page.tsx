@@ -153,13 +153,7 @@ export default function Home() {
   const hasPrefs = prefs.some(p=>p.date.startsWith(mp));
   const hasShiftData = assignments.some(a=>a.date.startsWith(mp));
   const currentStep = !hasStaff ? 1 : !hasShiftData && !hasPrefs ? 2 : !hasShiftData ? 3 : 4;
-  const nextAction: Record<number,{msg:string;tab:Tab|null}> = {
-    1: { msg: "まず「👤スタッフ管理」タブでスタッフのお名前を登録しましょう", tab: "staff" },
-    2: { msg: "次に「📋必要人数設定」で各日の必要人数を確認し、「✋勤務希望入力」で希望を入力しましょう", tab: "requirements" },
-    3: { msg: "準備ができたら、上の「シフトを自動作成」ボタンを押してみましょう", tab: null },
-    4: { msg: "シフト表ができました！ 気になる箇所があればマスをクリックして手直しできます", tab: "shift" },
-  };
-  const showGuide = !hasShiftData; // シフト未生成の間はガイドを大きく表示
+  const nextHint: string = currentStep===1?"まずスタッフを登録してください":currentStep===2?"必要人数を確認し、勤務希望を入力しましょう":currentStep===3?"「シフトを自動作成」ボタンを押してみましょう":"シフト完成！ マスをクリックして手直しできます";
 
   return (
     <div className="max-w-full mx-auto px-3 sm:px-6 py-5 bg-gradient-to-b from-slate-50 to-orange-50/20 min-h-screen">
@@ -173,63 +167,22 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ── 大きな案内カード（シフト未生成時に目立つ表示 / 生成後はコンパクト） ── */}
-      {showGuide ? (
-        <div className="mb-5 bg-gradient-to-br from-sky-50 via-white to-indigo-50/40 rounded-2xl border-2 border-sky-200 shadow-md overflow-hidden">
-          <div className="px-5 py-3 bg-sky-500 text-white">
-            <h2 className="text-base sm:text-lg font-bold">📖 シフト作成の流れ — かんたん5ステップ</h2>
-          </div>
-          <div className="px-5 py-4">
-            <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 sm:gap-3">
-              {([
-                { n:"1", icon:"👤", label:"スタッフを登録", tab:"staff" as Tab, done:hasStaff },
-                { n:"2", icon:"📋", label:"必要人数を確認", tab:"requirements" as Tab, done:hasStaff },
-                { n:"3", icon:"✋", label:"勤務希望を入力", tab:"prefs" as Tab, done:hasPrefs },
-                { n:"4", icon:"⚡", label:"シフトを自動作成", tab:null, done:hasShiftData },
-                { n:"5", icon:"✏️", label:"足りない所を手直し", tab:"shift" as Tab, done:isConfirmed },
-              ]).map((s,i)=>(
-                <button key={i} onClick={()=>{if(s.tab)setTab(s.tab);else handleGenerate();}}
-                  className={`relative flex sm:flex-col items-center gap-2 sm:gap-1 rounded-xl px-3 py-3 sm:py-4 text-left sm:text-center border-2 transition-all
-                    ${currentStep===i+1
-                      ?"border-sky-400 bg-sky-50 shadow-md ring-2 ring-sky-200 scale-[1.02]"
-                      :s.done
-                        ?"border-emerald-200 bg-emerald-50/60"
-                        :"border-gray-200 bg-white hover:border-sky-200 hover:bg-sky-50/30"
-                    }`}>
-                  <span className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full text-base sm:text-lg font-bold shrink-0
-                    ${currentStep===i+1?"bg-sky-500 text-white shadow":s.done?"bg-emerald-500 text-white":"bg-gray-200 text-gray-500"}`}>
-                    {s.done&&currentStep!==i+1?"✓":s.n}
-                  </span>
-                  <div className="flex flex-col sm:items-center">
-                    <span className={`text-sm sm:text-xs font-bold ${currentStep===i+1?"text-sky-700":s.done?"text-emerald-700":"text-gray-600"}`}>{s.icon} {s.label}</span>
-                  </div>
-                  {currentStep===i+1&&<span className="absolute -top-1 -right-1 sm:top-auto sm:-bottom-1 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 bg-sky-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow whitespace-nowrap">いまココ</span>}
-                </button>
-              ))}
-            </div>
-            {/* 今やること（大きめ表示） */}
-            <div className="mt-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-              <span className="text-xl leading-none mt-0.5">👉</span>
-              <div>
-                <p className="text-sm font-bold text-amber-800">今やること</p>
-                <p className="text-sm text-amber-700 mt-0.5">{nextAction[currentStep].msg}</p>
-                {nextAction[currentStep].tab&&(
-                  <button onClick={()=>setTab(nextAction[currentStep].tab!)}
-                    className="mt-2 inline-flex items-center gap-1 bg-amber-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow hover:bg-amber-600 active:scale-[0.97] transition-all">
-                    そのタブを開く →
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
+      {/* ── 案内バー: 1行のステップ表示 + 今やること ── */}
+      <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 bg-white/80 backdrop-blur rounded-xl border border-gray-200/80 px-4 py-2 shadow-sm">
+        <div className="flex items-center gap-1 text-xs text-gray-400 shrink-0 overflow-x-auto">
+          <span className="font-medium text-gray-500">使い方:</span>
+          {(["スタッフ登録","必要人数設定","勤務希望入力","シフト自動作成","確認・手直し"] as const).map((label,i)=>(
+            <span key={i} className="flex items-center gap-1 whitespace-nowrap">
+              {i>0&&<span className="text-gray-300">→</span>}
+              <span className={`${i+1===currentStep?"font-bold text-sky-600":i+1<currentStep?"text-emerald-500":"text-gray-400"}`}>{i+1<currentStep?"✓ ":i+1===currentStep?"▶ ":""}{label}</span>
+            </span>
+          ))}
         </div>
-      ) : (
-        /* シフト生成後はコンパクトな1行表示 */
-        <div className="mb-4 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5">
-          <span className="text-base">✅</span>
-          <p className="text-sm text-emerald-700 font-medium">{nextAction[currentStep].msg}</p>
-        </div>
-      )}
+        <span className="hidden sm:block text-gray-200">|</span>
+        <p className={`text-xs font-medium truncate ${currentStep===4?"text-emerald-600":"text-amber-600"}`}>
+          👉 {nextHint}
+        </p>
+      </div>
 
       <div className="bg-white/80 backdrop-blur rounded-xl border border-gray-200/80 p-4 mb-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3 mb-3">

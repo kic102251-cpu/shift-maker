@@ -142,65 +142,63 @@ export default function Home() {
 
   if(!mounted) return <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-sky-50 to-white"><p className="text-gray-400 text-lg">読み込み中...</p></div>;
 
-  const tabItems:[Tab,string,string][]=[
-    ["staff","スタッフ管理","👤"],["requirements","必要人数設定","📋"],
-    ["prefs","勤務希望入力","✋"],["shift","シフト表","📅"],["report","月間レポート","📊"],
-  ];
-
-  /* ── 状態に応じた「今やること」判定 ── */
+  /* ── ウィザード状態判定 ── */
   const mp = ym(year,month);
   const hasStaff = staffList.length > 0;
+  const hasAnyEnabled = TOGGLEABLE_SHIFTS.some(k=>config.enabledShifts[k]);
   const hasPrefs = prefs.some(p=>p.date.startsWith(mp));
   const hasShiftData = assignments.some(a=>a.date.startsWith(mp));
-  const hasAnyEnabled = TOGGLEABLE_SHIFTS.some(k=>config.enabledShifts[k]);
+  const hasConfirmedData = confirmedMonths.length > 0;
   const canGenerate = hasStaff && hasAnyEnabled;
-  const disabledReason = !hasStaff?"スタッフを登録してください":!hasAnyEnabled?"使用する勤務種類を1つ以上選んでください":"";
-  const currentStep = !hasStaff ? 1 : !hasShiftData && !hasPrefs ? 2 : !hasShiftData ? 3 : 4;
-  const nextHint: string = currentStep===1?"まずスタッフを登録してください":currentStep===2?"必要人数を確認し、勤務希望を入力しましょう":currentStep===3?"準備ができたら、下の「シフトを自動作成」を押しましょう":"";
+
+  // タブ定義
+  const tabDefs: {key:Tab;label:string;icon:string;step?:number}[] = [
+    {key:"staff",label:"スタッフ登録",icon:"👤",step:1},
+    {key:"requirements",label:"必要人数設定",icon:"📋",step:2},
+    {key:"prefs",label:"勤務希望入力",icon:"✋",step:3},
+    {key:"shift",label:"シフト表",icon:"📅"},
+    {key:"report",label:"月間レポート",icon:"📊"},
+  ];
+
+  // ロック判定関数
+  const isLocked = (key:Tab):boolean => {
+    if(key==="staff") return false;
+    if(key==="requirements"||key==="prefs") return !hasStaff;
+    if(key==="shift") return !hasShiftData;
+    if(key==="report") return !hasConfirmedData && !hasShiftData;
+    return false;
+  };
+  const lockReason = (key:Tab):string => {
+    if(key==="requirements"||key==="prefs") return !hasStaff?"先にスタッフを登録してください":"";
+    if(key==="shift") return !hasShiftData?"シフトを自動作成すると表示されます":"";
+    if(key==="report") return (!hasConfirmedData&&!hasShiftData)?"シフトを確定するとレポートが見られます":"";
+    return "";
+  };
+  const goTab = (key:Tab) => { if(!isLocked(key)) setTab(key); };
 
   return (
     <div className="max-w-full mx-auto px-3 sm:px-6 py-5 bg-gradient-to-b from-slate-50 to-orange-50/20 min-h-screen">
-      <header className="mb-5 bg-gradient-to-r from-white via-sky-50/60 to-indigo-50/40 rounded-2xl px-5 py-4 border border-sky-100 shadow-sm">
-        <div className="flex items-center gap-3">
+      {/* ── ヘッダー + 基本設定（年月・勤務種類） ── */}
+      <header className="mb-4 bg-gradient-to-r from-white via-sky-50/60 to-indigo-50/40 rounded-2xl px-5 py-4 border border-sky-100 shadow-sm">
+        <div className="flex items-center gap-3 mb-3">
           <div className="w-10 h-10 bg-gradient-to-br from-sky-500 to-indigo-500 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md">S</div>
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-gray-800">シフトメーカー</h1>
-            <p className="text-xs text-gray-400">看護師シフト自動作成ツール — 登録スタッフ {staffList.length}名</p>
+            <p className="text-xs text-gray-400">看護師シフト自動作成ツール</p>
           </div>
         </div>
-      </header>
-
-      {/* ── 案内バー（シフト未完成時のみ表示） ── */}
-      {nextHint&&(
-        <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 bg-white/80 backdrop-blur rounded-xl border border-gray-200/80 px-4 py-2 shadow-sm">
-          <div className="flex items-center gap-1 text-xs text-gray-400 shrink-0 overflow-x-auto">
-            <span className="font-medium text-gray-500">流れ:</span>
-            {(["スタッフ登録","必要人数設定","勤務希望入力","シフト自動作成"] as const).map((label,i)=>(
-              <span key={i} className="flex items-center gap-1 whitespace-nowrap">
-                {i>0&&<span className="text-gray-300">→</span>}
-                <span className={`${i+1===currentStep?"font-bold text-sky-600":i+1<currentStep?"text-emerald-500":"text-gray-400"}`}>{i+1<currentStep?"✓ ":i+1===currentStep?"▶ ":""}{label}</span>
-              </span>
-            ))}
-          </div>
-          <span className="hidden sm:block text-gray-200">|</span>
-          <p className="text-xs font-medium text-amber-600 truncate">👉 {nextHint}</p>
-        </div>
-      )}
-
-      {/* ── 年月選択 + 勤務種類（生成ボタンは下部へ移動） ── */}
-      <div className="bg-white/80 backdrop-blur rounded-xl border border-gray-200/80 p-4 mb-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3 mb-3">
+        <div className="flex flex-wrap items-center gap-3 mb-2">
           <span className="text-gray-500 font-medium text-xs">対象月:</span>
-          <select value={year} onChange={e=>setYear(Number(e.target.value))} className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none">
+          <select value={year} onChange={e=>setYear(Number(e.target.value))} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none">
             {[2024,2025,2026,2027].map(y=><option key={y} value={y}>{y}年</option>)}
           </select>
-          <select value={month} onChange={e=>setMonth(Number(e.target.value))} className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none">
+          <select value={month} onChange={e=>setMonth(Number(e.target.value))} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none">
             {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}
           </select>
           {isConfirmed&&<span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full font-medium">✓ 確定済み</span>}
         </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-          <span className="text-gray-500 font-medium text-xs">使用する勤務種類</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+          <span className="text-gray-500 font-medium text-xs">使用する勤務種類:</span>
           {TOGGLEABLE_SHIFTS.map(key=>(
             <label key={key} className="flex items-center gap-1.5 cursor-pointer select-none group">
               <button onClick={()=>setConfig({...config,enabledShifts:{...config.enabledShifts,[key]:!config.enabledShifts[key]}})}
@@ -211,42 +209,79 @@ export default function Home() {
             </label>
           ))}
         </div>
-      </div>
+      </header>
 
-      {/* ── タブ（ステップ番号付き） ── */}
-      <div className="flex gap-1 mb-4 border-b border-gray-200/80 overflow-x-auto">
-        {tabItems.map(([key,label,icon],idx)=>(
-          <button key={key} onClick={()=>setTab(key)}
-            className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-all ${
-              tab===key?"border-sky-500 text-sky-700 bg-sky-50/60 rounded-t-lg":"border-transparent text-gray-400 hover:text-gray-600 hover:border-gray-300 rounded-t-lg"
-            }`}><span className="mr-1">{icon}</span>{idx<3?`${idx+1}. `:""}{label}</button>
-        ))}
+      {/* ── タブ（ロック付きウィザードナビ） ── */}
+      <div className="flex gap-0.5 mb-4 border-b border-gray-200/80 overflow-x-auto">
+        {tabDefs.map(td=>{const locked=isLocked(td.key);const reason=lockReason(td.key);return(
+          <button key={td.key}
+            onClick={()=>goTab(td.key)}
+            disabled={locked}
+            title={locked?reason:""}
+            className={`relative px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-all rounded-t-lg ${
+              locked
+                ?"border-transparent text-gray-300 cursor-not-allowed bg-gray-50/50"
+                :tab===td.key
+                  ?"border-sky-500 text-sky-700 bg-sky-50/60"
+                  :"border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+            }`}>
+            <span className="mr-1">{td.icon}</span>
+            {td.step?`${td.step}. `:""}{td.label}
+            {locked&&<span className="ml-1 text-gray-300">🔒</span>}
+          </button>
+        );})}
       </div>
 
       {/* ── タブコンテンツ ── */}
       <div className="bg-white/90 backdrop-blur rounded-xl border border-gray-200/80 p-4 shadow-sm">
-        {tab==="staff"&&<StaffPanel staffList={staffList} setStaffList={setStaffList} enabledTargets={enabledTargets}/>}
-        {tab==="requirements"&&<ReqPanel year={year} month={month} dailyReqs={dailyReqs} setDailyReqs={setDailyReqs} enabledWork={enabledWork} nightEnabled={config.enabledShifts.night}/>}
-        {tab==="prefs"&&<PrefsPanel staffList={staffList} prefs={prefs} setPrefs={setPrefs} year={year} month={month} enabledDisplay={enabledDisplay} nightEnabled={config.enabledShifts.night}/>}
+        {tab==="staff"&&(
+          <>
+            <StaffPanel staffList={staffList} setStaffList={setStaffList} enabledTargets={enabledTargets}/>
+            {hasStaff&&(
+              <div className="mt-4 pt-4 border-t border-gray-200 flex items-center gap-3">
+                <button onClick={()=>setTab("requirements")} className="bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:shadow-lg active:scale-[0.97] transition-all">
+                  次へ → 必要人数設定
+                </button>
+                <span className="text-xs text-gray-400">スタッフ{staffList.length}名を登録済み</span>
+              </div>
+            )}
+          </>
+        )}
+        {tab==="requirements"&&(
+          <>
+            <ReqPanel year={year} month={month} dailyReqs={dailyReqs} setDailyReqs={setDailyReqs} enabledWork={enabledWork} nightEnabled={config.enabledShifts.night}/>
+            <div className="mt-4 pt-4 border-t border-gray-200 flex items-center gap-3">
+              <button onClick={()=>setTab("prefs")} className="bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:shadow-lg active:scale-[0.97] transition-all">
+                次へ → 勤務希望入力
+              </button>
+            </div>
+          </>
+        )}
+        {tab==="prefs"&&(
+          <>
+            <PrefsPanel staffList={staffList} prefs={prefs} setPrefs={setPrefs} year={year} month={month} enabledDisplay={enabledDisplay} nightEnabled={config.enabledShifts.night}/>
+            <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <button onClick={handleGenerate} disabled={!canGenerate}
+                  className={`px-8 py-3 rounded-xl text-base font-bold shadow-md transition-all active:scale-[0.97] ${
+                    canGenerate
+                      ?"bg-gradient-to-r from-sky-500 to-indigo-500 text-white hover:shadow-lg hover:from-sky-600 hover:to-indigo-600"
+                      :"bg-gray-200 text-gray-400 cursor-not-allowed shadow-none"
+                  }`}>
+                  ⚡ シフトを自動作成
+                </button>
+                {!canGenerate&&!hasStaff&&<span className="text-xs text-gray-400">← スタッフを登録してください</span>}
+                {!canGenerate&&hasStaff&&!hasAnyEnabled&&<span className="text-xs text-gray-400">← 使用する勤務種類を1つ以上選んでください</span>}
+                {canGenerate&&hasShiftData&&<span className="text-xs text-gray-400">※ 再度作成すると現在のシフト表は上書きされます</span>}
+              </div>
+              {canGenerate&&!hasPrefs&&(
+                <p className="text-xs text-gray-400">※ 勤務希望を入れなくてもシフトは作成できます</p>
+              )}
+            </div>
+          </>
+        )}
         {tab==="shift"&&<ShiftPanel staffList={staffList} assignments={assignments} setAssignments={setAssignments} year={year} month={month} enabledAssign={enabledAssign} enabledDisplay={enabledDisplay} nightEnabled={config.enabledShifts.night} onConfirm={handleConfirm} isConfirmed={isConfirmed} carryover={carryover} prevYM={ym(py,pm)} prevConfirmed={prevConfirmed}/>}
         {tab==="report"&&<ReportPanel staffList={staffList} confirmedMonths={confirmedMonths} enabledDisplay={enabledDisplay}/>}
-      </div>
-
-      {/* ── シフト自動作成ボタン（入力導線の最後に配置） ── */}
-      <div className="mt-4 bg-white/90 backdrop-blur rounded-xl border border-gray-200/80 p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3">
-          <button onClick={handleGenerate}
-            className={`px-8 py-3 rounded-xl text-base font-bold shadow-md transition-all active:scale-[0.97] ${
-              canGenerate
-                ?"bg-gradient-to-r from-sky-500 to-indigo-500 text-white hover:shadow-lg hover:from-sky-600 hover:to-indigo-600"
-                :"bg-gray-200 text-gray-400 cursor-not-allowed shadow-none"
-            }`} disabled={!canGenerate}>
-            ⚡ シフトを自動作成
-          </button>
-          {!canGenerate&&<span className="text-xs text-gray-400">← {disabledReason}</span>}
-          {canGenerate&&!hasPrefs&&!hasShiftData&&<span className="text-xs text-gray-400">※ 勤務希望を入れなくても作成できます</span>}
-          {canGenerate&&hasShiftData&&<span className="text-xs text-gray-400">※ 再度作成すると現在のシフト表は上書きされます</span>}
-        </div>
       </div>
     </div>
   );

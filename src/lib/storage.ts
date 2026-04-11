@@ -1,6 +1,6 @@
 import {
   Staff, ShiftPreference, ShiftAssignment, ShiftConfig, DEFAULT_CONFIG,
-  DailyRequirement, DEFAULT_TARGETS, ConfirmedData,
+  DailyRequirement, DEFAULT_TARGETS, ConfirmedData, CustomShift,
 } from "./types";
 
 const PFX = "sm6";
@@ -42,3 +42,7 @@ export const saveConfirmedMonths = (months: string[]) => save(`${PFX}-conf-list`
 export const deleteConfirmed = (ym: string) => {
   if (typeof window !== "undefined") localStorage.removeItem(`${PFX}-conf-${ym}`);
 };
+
+/* ── Custom shifts ── */
+export const loadCustomShifts = (): CustomShift[] => load<CustomShift[]>(`${PFX}-cshifts`, []);
+export const saveCustomShifts = (cs: CustomShift[]) => save(`${PFX}-cshifts`, cs);

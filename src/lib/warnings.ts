@@ -1,4 +1,4 @@
-import { ShiftAssignment, Staff, ShiftWarning, WORK_SHIFTS } from "./types";
+import { ShiftAssignment, Staff, ShiftWarning, WORK_SHIFTS, CustomShift, isCustomShift } from "./types";
 
 /**
  * Validate shift assignments and return warnings.
@@ -9,6 +9,7 @@ export function checkShift(
   assignments: ShiftAssignment[],
   year: number,
   month: number,
+  customShifts?: CustomShift[],
 ): ShiftWarning[] {
   const warnings: ShiftWarning[] = [];
   const numDays = new Date(year, month, 0).getDate();
@@ -25,8 +26,12 @@ export function checkShift(
   }
 
   const nameMap = new Map(staffList.map(s => [s.id, s.name]));
-  const isWork = (sh: string | undefined) =>
-    sh !== undefined && sh !== "off" && sh !== "req_off" && sh !== "annual";
+  const customWorkIds = new Set((customShifts||[]).filter(c=>c.isWork).map(c=>c.id));
+  const isWork = (sh: string | undefined) => {
+    if(sh === undefined || sh === "off" || sh === "req_off" || sh === "annual") return false;
+    if(isCustomShift(sh)) return customWorkIds.has(sh);
+    return true;
+  };
 
   for (const s of staffList) {
     const row = grid.get(s.id);
@@ -64,7 +69,7 @@ export function checkShift(
         if (next && next !== "off" && next !== "req_off") {
           warnings.push({
             level: "error",
-            message: `${name}さんの${month}/${d + 1}は深夜明けのため休みが望ましいですが、${shiftLabel(next)}が入っています`,
+            message: `${name}さんの${month}/${d + 1}は深夜明けのため休みが望ましいですが、${shiftLabel(next, customShifts)}が入っています`,
           });
         }
       }
@@ -108,11 +113,13 @@ export function checkShift(
   return warnings;
 }
 
-function shiftLabel(sh: string): string {
+function shiftLabel(sh: string, customShifts?: CustomShift[]): string {
   const labels: Record<string, string> = {
     day: "日勤", semi_night: "準夜", deep_night: "深夜", off: "休み",
     early: "早番", late: "遅番", long_day: "日長", standby: "待機",
     training: "研修", annual: "年休", am: "午前", pm: "午後", req_off: "希休",
   };
-  return labels[sh] || sh;
+  if (labels[sh]) return labels[sh];
+  const c = customShifts?.find(c => c.id === sh);
+  return c?.name || sh;
 }

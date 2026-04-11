@@ -1,7 +1,7 @@
 import {
   ShiftAssignment, ShiftType, Staff, ShiftPreference, ShiftConfig,
   DailyRequirement, DEFAULT_CONFIG, WORK_SHIFTS, Carryover,
-  WEEKDAY_TEMPLATE, WEEKEND_TEMPLATE,
+  WEEKDAY_TEMPLATE, WEEKEND_TEMPLATE, CustomShift, isCustomShift,
 } from "./types";
 import { isRestDay } from "./holidays";
 
@@ -22,23 +22,27 @@ function canWorkDay(staff:Staff, y:number, m:number, d:number):boolean{
 }
 
 type Counts=Record<string,number>;
-function newCounts():Counts{
-  return{day:0,semi_night:0,deep_night:0,off:0,early:0,late:0,
+function newCounts(customShifts?:CustomShift[]):Counts{
+  const c:Counts={day:0,semi_night:0,deep_night:0,off:0,early:0,late:0,
     long_day:0,standby:0,training:0,annual:0,am:0,pm:0,req_off:0};
+  if(customShifts) for(const cs of customShifts) c[cs.id]=0;
+  return c;
 }
-/** Total working days including night */
-function totalWork(c:Counts){
-  return WORK_SHIFTS.reduce((s,k)=>s+(c[k]||0),0)+(c.semi_night||0)+(c.deep_night||0);
+/** Total working days including night and custom work shifts */
+function totalWork(c:Counts, customWorkIds?:string[]){
+  let t=WORK_SHIFTS.reduce((s,k)=>s+(c[k]||0),0)+(c.semi_night||0)+(c.deep_night||0);
+  if(customWorkIds) for(const id of customWorkIds) t+=(c[id]||0);
+  return t;
 }
 
 function shuffle<T>(a:T[]):T[]{const r=[...a];for(let i=r.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[r[i],r[j]]=[r[j],r[i]];}return r;}
 
-function sortByTarget(indices:number[],counts:Counts[],countKey:string,targets:number[]):number[]{
+function sortByTarget(indices:number[],counts:Counts[],countKey:string,targets:number[],customWorkIds?:string[]):number[]{
   return shuffle(indices).sort((a,b)=>{
     const dA=targets[a]-(counts[a][countKey]||0);
     const dB=targets[b]-(counts[b][countKey]||0);
     if(dA!==dB)return dB-dA;
-    return totalWork(counts[a])-totalWork(counts[b]);
+    return totalWork(counts[a],customWorkIds)-totalWork(counts[b],customWorkIds);
   });
 }
 
@@ -47,6 +51,7 @@ export function generateShift(
   prefs:ShiftPreference[], config:ShiftConfig=DEFAULT_CONFIG,
   dailyReqsMap:Record<string,DailyRequirement>={},
   carryover?:Carryover,
+  customShifts?:CustomShift[],
 ):ShiftAssignment[]{
   const numDays=daysIn(year,month);
   const n=staffList.length;
@@ -55,9 +60,13 @@ export function generateShift(
   const targetOffs=staffList.map(s=>s.monthlyOffDays||10);
   const en=config.enabledShifts;
 
+  // Enabled custom work shift IDs
+  const enabledCustom=(customShifts||[]).filter(cs=>cs.enabled&&en[cs.id]);
+  const customWorkIds=enabledCustom.filter(cs=>cs.isWork).map(cs=>cs.id);
+
   // Targets: for "night" key, compare against semi_night count
   const shiftTargets:Record<string,number[]>={};
-  for(const k of Object.keys(newCounts())) shiftTargets[k]=staffList.map(s=>(s.targets?.[k as ShiftType])||0);
+  for(const k of Object.keys(newCounts(customShifts))) shiftTargets[k]=staffList.map(s=>(s.targets?.[k as ShiftType])||0);
   // Night targets: stored under "night" key in staff, used to sort by semi_night deficit
   shiftTargets["night"]=staffList.map(s=>(s.targets?.night)||0);
 
@@ -78,7 +87,7 @@ export function generateShift(
   for(const p of prefs) prefMap.set(`${p.staffId}_${p.date}`, p.shift);
 
   const matrix:(ShiftType|null)[][]=Array.from({length:n},()=>Array(numDays+1).fill(null));
-  const counts:Counts[]=Array.from({length:n},()=>newCounts());
+  const counts:Counts[]=Array.from({length:n},()=>newCounts(customShifts));
 
   // Daily caps for day-shift workers
   const avgOff=targetOffs.reduce((a,b)=>a+b,0)/n;
@@ -143,7 +152,7 @@ export function generateShift(
           return true;
         };
         const cands=Array.from({length:n},(_,i)=>i).filter(canNight);
-        const sorted=sortByTarget(cands,counts,"semi_night",shiftTargets["night"]);
+        const sorted=sortByTarget(cands,counts,"semi_night",shiftTargets["night"],customWorkIds);
         let assigned=0;
         for(const si of sorted){
           if(assigned>=nightNeed)break;
@@ -157,18 +166,19 @@ export function generateShift(
       }
     }
 
-    // Other work shifts (not day, not night)
-    const otherShifts:ShiftType[]=["long_day","early","late","standby","training","am","pm"];
+    // Other work shifts (not day, not night) — includes custom work shifts
+    const otherShifts:string[]=["long_day","early","late","standby","training","am","pm",...customWorkIds];
     for(const st of otherShifts){
-      if(!en[st as keyof typeof en])continue;
+      if(!en[st])continue;
       const already=():number=>{let c=0;for(let si=0;si<n;si++)if(matrix[si][d]===st)c++;return c;};
       const need=Math.max(0,(dayReq[st]||0)-already());
       if(need<=0)continue;
-      const sorted=sortByTarget(avail(),counts,st,shiftTargets[st]);
+      const tgt=shiftTargets[st]||staffList.map(()=>0);
+      const sorted=sortByTarget(avail(),counts,st,tgt,customWorkIds);
       let assigned=0;
       for(const si of sorted){
         if(assigned>=need)break;
-        matrix[si][d]=st; counts[si][st]=(counts[si][st]||0)+1; assigned++;
+        matrix[si][d]=st as ShiftType; counts[si][st]=(counts[si][st]||0)+1; assigned++;
       }
     }
 
@@ -179,15 +189,15 @@ export function generateShift(
     let dayWorkers=0;
     for(let si=0;si<n;si++){
       const s=matrix[si][d];
-      if(s&&WORK_SHIFTS.includes(s))dayWorkers++;
+      if(s&&(WORK_SHIFTS.includes(s)||customWorkIds.includes(s)))dayWorkers++;
     }
     const alreadyDay=():number=>{let c=0;for(let si=0;si<n;si++)if(matrix[si][d]==="day")c++;return c;};
     const dayNeed=Math.max((dayReq.day||0)-alreadyDay(),0);
-    const remaining=sortByTarget(avail(),counts,"day",shiftTargets.day);
+    const remaining=sortByTarget(avail(),counts,"day",shiftTargets.day,customWorkIds);
     let dayFilled=0;
     for(const si of remaining){
       const tw=numDays-targetOffs[si];
-      if(dayFilled<dayNeed||(dayWorkers<dailyCap&&totalWork(counts[si])<tw)){
+      if(dayFilled<dayNeed||(dayWorkers<dailyCap&&totalWork(counts[si],customWorkIds)<tw)){
         matrix[si][d]="day"; counts[si].day++; dayWorkers++; dayFilled++;
       }else{
         matrix[si][d]="off"; counts[si].off++;

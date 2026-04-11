@@ -47,6 +47,7 @@ function dayHeaderClass(y:number,m:number,d:number){
 }
 
 /* ━━━━━━━━━━━━━━ Root ━━━━━━━━━━━━━━ */
+const PFX="sm6";
 export default function Home() {
   const [tab, setTab] = useState<Tab>("staff");
   const [staffList, setStaffList] = useState<Staff[]>([]);
@@ -61,10 +62,18 @@ export default function Home() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth()+1);
 
+  // 初心者モード + ウィザードステップ (1-7)
+  const [beginnerMode, setBeginnerMode] = useState(false);
+  const [wizStep, setWizStep] = useState(1);
+
   useEffect(()=>{
     setStaffList(loadStaff()); setPrefs(loadPrefs());
     setAssignments(loadAssignments()); setConfig(loadConfig());
     setDailyReqs(loadDailyReqs()); setConfirmedMonths(loadConfirmedMonths());
+    const saved = localStorage.getItem(`${PFX}-beginner`);
+    if(saved!==null) setBeginnerMode(JSON.parse(saved));
+    const savedStep = localStorage.getItem(`${PFX}-wizstep`);
+    if(savedStep!==null) setWizStep(Number(savedStep));
     setMounted(true);
   },[]);
 
@@ -73,6 +82,8 @@ export default function Home() {
   useEffect(()=>{if(mounted)saveAssignments(assignments);},[assignments,mounted]);
   useEffect(()=>{if(mounted)saveConfig(config);},[config,mounted]);
   useEffect(()=>{if(mounted)saveDailyReqs(dailyReqs);},[dailyReqs,mounted]);
+  useEffect(()=>{if(mounted)localStorage.setItem(`${PFX}-beginner`,JSON.stringify(beginnerMode));},[beginnerMode,mounted]);
+  useEffect(()=>{if(mounted)localStorage.setItem(`${PFX}-wizstep`,String(wizStep));},[wizStep,mounted]);
 
   const enabledWork = WORK_SHIFTS.filter(s=>config.enabledShifts[s as ToggleableShift]);
   const enabledTargets = TARGET_SHIFTS.filter(s=>config.enabledShifts[s as ToggleableShift]);
@@ -87,7 +98,6 @@ export default function Home() {
   },[config]);
   const enabledDisplay = useMemo(()=>[...ALL_SHIFTS.filter(s=>config.enabledShifts[s as ToggleableShift]),"req_off" as ShiftType],[config]);
 
-  // Carryover: load previous month's confirmed data and compute deltas
   const currentYM = ym(year,month);
   const [py,pm] = prevYM(year,month);
   const prevConfirmed = useMemo(()=>mounted?loadConfirmed(ym(py,pm)):{},[py,pm,mounted]);
@@ -95,20 +105,11 @@ export default function Home() {
     if(Object.keys(prevConfirmed).length===0)return {};
     const co:Carryover={};
     for(const s of staffList){
-      const pc=prevConfirmed[s.id];
-      if(!pc)continue;
+      const pc=prevConfirmed[s.id];if(!pc)continue;
       const adj:Record<string,number>={};
-      // Night: target - actual (semi_night count = night sets)
-      const nightTarget=s.targets?.night||0;
-      const nightActual=pc.semi_night||0;
+      const nightTarget=s.targets?.night||0;const nightActual=pc.semi_night||0;
       if(nightTarget-nightActual!==0) adj["night"]=nightTarget-nightActual;
-      // Day shifts
-      for(const st of TARGET_SHIFTS){
-        if(st==="night")continue;
-        const t=s.targets?.[st]||0;
-        const a=pc[st]||0;
-        if(t-a!==0) adj[st]=t-a;
-      }
+      for(const st of TARGET_SHIFTS){if(st==="night")continue;const t=s.targets?.[st]||0;const a=pc[st]||0;if(t-a!==0)adj[st]=t-a;}
       if(Object.keys(adj).length>0) co[s.id]=adj;
     }
     return co;
@@ -118,102 +119,191 @@ export default function Home() {
     const co=Object.keys(carryover).length>0?carryover:undefined;
     const r = generateShift(year,month,staffList,prefs,config,dailyReqs,co);
     setAssignments(r); setTab("shift");
-  },[year,month,staffList,prefs,config,dailyReqs,carryover]);
+    if(beginnerMode) setWizStep(7);
+  },[year,month,staffList,prefs,config,dailyReqs,carryover,beginnerMode]);
 
   const isConfirmed = confirmedMonths.includes(currentYM);
 
   const handleConfirm = useCallback(()=>{
-    const mp=currentYM;
-    const data:ConfirmedData={};
-    for(const s of staffList){
-      const counts:Record<string,number>={};
-      for(const a of assignments){
-        if(a.staffId===s.id&&a.date.startsWith(mp)){
-          counts[a.shift]=(counts[a.shift]||0)+1;
-        }
-      }
-      data[s.id]=counts;
-    }
-    saveConfirmed(mp,data);
-    const newList=[...new Set([...confirmedMonths,mp])].sort();
-    setConfirmedMonths(newList);
-    saveConfirmedMonths(newList);
+    const cym=currentYM;const data:ConfirmedData={};
+    for(const s of staffList){const counts:Record<string,number>={};for(const a of assignments){if(a.staffId===s.id&&a.date.startsWith(cym))counts[a.shift]=(counts[a.shift]||0)+1;}data[s.id]=counts;}
+    saveConfirmed(cym,data);
+    const newList=[...new Set([...confirmedMonths,cym])].sort();
+    setConfirmedMonths(newList);saveConfirmedMonths(newList);
   },[assignments,staffList,currentYM,confirmedMonths]);
+
+  // リセット
+  const handleReset = useCallback(()=>{
+    if(!confirm("すべてのデータを初期化します。\nスタッフ・シフト・設定がすべて消えます。\nよろしいですか？"))return;
+    const keys:string[]=[];
+    for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith(PFX))keys.push(k);}
+    keys.forEach(k=>localStorage.removeItem(k));
+    setStaffList([]); setPrefs([]); setAssignments([]);
+    setConfig(DEFAULT_CONFIG); setDailyReqs({}); setConfirmedMonths([]);
+    setWizStep(1); setTab("staff"); setBeginnerMode(beginnerMode);
+  },[beginnerMode]);
 
   if(!mounted) return <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-sky-50 to-white"><p className="text-gray-400 text-lg">読み込み中...</p></div>;
 
-  /* ── ウィザード状態判定 ── */
+  /* ── 状態判定 ── */
   const mp = ym(year,month);
   const hasStaff = staffList.length > 0;
   const hasAnyEnabled = TOGGLEABLE_SHIFTS.some(k=>config.enabledShifts[k]);
   const hasPrefs = prefs.some(p=>p.date.startsWith(mp));
   const hasShiftData = assignments.some(a=>a.date.startsWith(mp));
-  const hasConfirmedData = confirmedMonths.length > 0;
   const canGenerate = hasStaff && hasAnyEnabled;
 
+  /* ── 初心者モード: ウィザード進行ヘルパー ── */
+  const BM = beginnerMode;
+  const wizNext = (next:number,toTab?:Tab) => { setWizStep(next); if(toTab)setTab(toTab); };
+  // ステップ名とその完了条件
+  const WIZ_STEPS:{n:number;label:string;done:boolean}[] = [
+    {n:1,label:"対象月を選ぶ",done:wizStep>1},
+    {n:2,label:"勤務種類を選ぶ",done:wizStep>2},
+    {n:3,label:"スタッフを登録",done:wizStep>3},
+    {n:4,label:"必要人数を設定",done:wizStep>4},
+    {n:5,label:"勤務希望を入力",done:wizStep>5},
+    {n:6,label:"シフトを自動作成",done:wizStep>6},
+    {n:7,label:"確認・手直し",done:false},
+  ];
+
+  // 初心者モード: タブロック判定
+  const tabForStep:{[k:number]:Tab} = {3:"staff",4:"requirements",5:"prefs",6:"prefs",7:"shift"};
+  const isTabLocked = (key:Tab):boolean => {
+    if(!BM) return false;
+    if(key==="staff") return wizStep<3;
+    if(key==="requirements") return wizStep<4;
+    if(key==="prefs") return wizStep<5;
+    if(key==="shift") return wizStep<7;
+    if(key==="report") return wizStep<7;
+    return false;
+  };
+  const tabLockReason = (key:Tab):string => {
+    if(!BM) return "";
+    if(key==="staff"&&wizStep<3) return "先に対象月と勤務種類を選んでください";
+    if(key==="requirements"&&wizStep<4) return "先にスタッフを登録してください";
+    if(key==="prefs"&&wizStep<5) return "先に必要人数を設定してください";
+    if(key==="shift"&&wizStep<7) return "シフトを自動作成すると表示されます";
+    if(key==="report"&&wizStep<7) return "シフトを自動作成すると表示されます";
+    return "";
+  };
+
+  // ステップ強調用CSS
+  const stepHighlight = (stepNum:number) => BM && wizStep===stepNum
+    ? "ring-2 ring-rose-400 bg-rose-50/60 border-rose-300"
+    : "";
+  const stepDim = (stepNum:number) => BM && wizStep<stepNum
+    ? "opacity-40 pointer-events-none"
+    : "";
+
   // タブ定義
-  const tabDefs: {key:Tab;label:string;icon:string;step?:number}[] = [
-    {key:"staff",label:"スタッフ登録",icon:"👤",step:1},
-    {key:"requirements",label:"必要人数設定",icon:"📋",step:2},
-    {key:"prefs",label:"勤務希望入力",icon:"✋",step:3},
-    {key:"shift",label:"シフト表",icon:"📅"},
+  const tabDefs: {key:Tab;label:string;icon:string;wizStep?:number}[] = [
+    {key:"staff",label:"スタッフ登録",icon:"👤",wizStep:3},
+    {key:"requirements",label:"必要人数設定",icon:"📋",wizStep:4},
+    {key:"prefs",label:"勤務希望入力",icon:"✋",wizStep:5},
+    {key:"shift",label:"シフト表",icon:"📅",wizStep:7},
     {key:"report",label:"月間レポート",icon:"📊"},
   ];
 
-  // ロック判定関数
-  const isLocked = (key:Tab):boolean => {
-    if(key==="staff") return false;
-    if(key==="requirements"||key==="prefs") return !hasStaff;
-    if(key==="shift") return !hasShiftData;
-    if(key==="report") return !hasConfirmedData && !hasShiftData;
-    return false;
-  };
-  const lockReason = (key:Tab):string => {
-    if(key==="requirements"||key==="prefs") return !hasStaff?"先にスタッフを登録してください":"";
-    if(key==="shift") return !hasShiftData?"シフトを自動作成すると表示されます":"";
-    if(key==="report") return (!hasConfirmedData&&!hasShiftData)?"シフトを確定するとレポートが見られます":"";
-    return "";
-  };
-  const goTab = (key:Tab) => { if(!isLocked(key)) setTab(key); };
+  const goTab = (key:Tab) => { if(!isTabLocked(key)) setTab(key); };
+
+  /* ── 次へボタン共通 ── */
+  const NextBtn = ({onClick,label,disabled:dis,sub}:{onClick:()=>void;label:string;disabled?:boolean;sub?:string}) => (
+    <div className="mt-4 pt-4 border-t border-gray-200 flex flex-wrap items-center gap-3">
+      <button onClick={onClick} disabled={dis}
+        className={`px-6 py-2.5 rounded-lg text-sm font-bold shadow-md transition-all active:scale-[0.97] ${
+          dis?"bg-gray-200 text-gray-400 cursor-not-allowed shadow-none"
+            :"bg-gradient-to-r from-sky-500 to-indigo-500 text-white hover:shadow-lg hover:from-sky-600 hover:to-indigo-600"
+        }`}>{label}</button>
+      {sub&&<span className="text-xs text-gray-400">{sub}</span>}
+    </div>
+  );
 
   return (
     <div className="max-w-full mx-auto px-3 sm:px-6 py-5 bg-gradient-to-b from-slate-50 to-orange-50/20 min-h-screen">
-      {/* ── ヘッダー + 基本設定（年月・勤務種類） ── */}
+      {/* ── ヘッダー ── */}
       <header className="mb-4 bg-gradient-to-r from-white via-sky-50/60 to-indigo-50/40 rounded-2xl px-5 py-4 border border-sky-100 shadow-sm">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-sky-500 to-indigo-500 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md">S</div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-800">シフトメーカー</h1>
-            <p className="text-xs text-gray-400">看護師シフト自動作成ツール</p>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-sky-500 to-indigo-500 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md">S</div>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-800">シフトメーカー</h1>
+              <p className="text-xs text-gray-400">看護師シフト自動作成ツール</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* 初心者モードトグル */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <span className="text-xs text-gray-500 hidden sm:inline">初心者モード</span>
+              <button onClick={()=>{setBeginnerMode(!beginnerMode);if(!beginnerMode)setWizStep(1);}}
+                className={`relative w-10 h-5 rounded-full transition-colors ${beginnerMode?"bg-rose-400":"bg-gray-300"}`}>
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${beginnerMode?"translate-x-5":"translate-x-0.5"}`}/>
+              </button>
+              <span className="text-xs text-gray-500 sm:hidden">{beginnerMode?"初心者":"通常"}</span>
+            </label>
+            {/* リセットボタン */}
+            <button onClick={handleReset} className="text-xs text-gray-400 hover:text-rose-500 border border-gray-200 hover:border-rose-300 rounded-lg px-2.5 py-1.5 transition-all" title="すべてのデータを初期化">
+              リセット
+            </button>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3 mb-2">
-          <span className="text-gray-500 font-medium text-xs">対象月:</span>
-          <select value={year} onChange={e=>setYear(Number(e.target.value))} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none">
+
+        {/* 初心者モード: ステップ進捗バー */}
+        {BM&&(
+          <div className="mb-3 flex items-center gap-0.5 overflow-x-auto text-[10px]">
+            {WIZ_STEPS.map(s=>(
+              <div key={s.n} className="flex items-center gap-0.5">
+                {s.n>1&&<span className="text-gray-300">›</span>}
+                <span className={`whitespace-nowrap px-1.5 py-0.5 rounded-full font-medium ${
+                  wizStep===s.n?"bg-rose-100 text-rose-700 font-bold":s.done?"text-emerald-600":"text-gray-400"
+                }`}>{s.done?"✓":s.n}. {s.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ① 対象月を選ぶ */}
+        <div className={`flex flex-wrap items-center gap-3 mb-2 rounded-lg px-3 py-2 -mx-1 transition-all ${stepHighlight(1)} ${BM&&wizStep>1?"":"" }`}>
+          <span className="text-gray-500 font-medium text-xs">{BM?"① ":""}対象月:</span>
+          <select value={year} onChange={e=>setYear(Number(e.target.value))} className={`border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none ${stepDim(0)}`} disabled={BM&&wizStep>6}>
             {[2024,2025,2026,2027].map(y=><option key={y} value={y}>{y}年</option>)}
           </select>
-          <select value={month} onChange={e=>setMonth(Number(e.target.value))} className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none">
+          <select value={month} onChange={e=>setMonth(Number(e.target.value))} className={`border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none ${stepDim(0)}`} disabled={BM&&wizStep>6}>
             {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m}月</option>)}
           </select>
           {isConfirmed&&<span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full font-medium">✓ 確定済み</span>}
+          {BM&&wizStep===1&&(
+            <button onClick={()=>wizNext(2)} className="bg-rose-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg shadow hover:bg-rose-600 active:scale-[0.97] transition-all">
+              {year}年{month}月で決定 → 次へ
+            </button>
+          )}
         </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
-          <span className="text-gray-500 font-medium text-xs">使用する勤務種類:</span>
+
+        {/* ② 使用する勤務種類を選ぶ */}
+        <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm rounded-lg px-3 py-2 -mx-1 transition-all ${stepHighlight(2)} ${stepDim(2)}`}>
+          <span className="text-gray-500 font-medium text-xs">{BM?"② ":""}使用する勤務種類:</span>
           {TOGGLEABLE_SHIFTS.map(key=>(
             <label key={key} className="flex items-center gap-1.5 cursor-pointer select-none group">
               <button onClick={()=>setConfig({...config,enabledShifts:{...config.enabledShifts,[key]:!config.enabledShifts[key]}})}
+                disabled={BM&&wizStep!==2}
                 className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${config.enabledShifts[key]?"bg-sky-500 border-sky-500 text-white shadow-sm":"border-gray-300 bg-white group-hover:border-sky-300"}`}>
                 {config.enabledShifts[key]&&<svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
               </button>
               <Pill st={key} active={config.enabledShifts[key]}/>
             </label>
           ))}
+          {BM&&wizStep===2&&(
+            <button onClick={()=>{if(hasAnyEnabled){wizNext(3,"staff");}else{alert("勤務種類を1つ以上選んでください");}}}
+              className={`text-xs font-bold px-4 py-1.5 rounded-lg shadow active:scale-[0.97] transition-all ${hasAnyEnabled?"bg-rose-500 text-white hover:bg-rose-600":"bg-gray-200 text-gray-400 cursor-not-allowed"}`}>
+              決定 → 次へ
+            </button>
+          )}
         </div>
       </header>
 
-      {/* ── タブ（ロック付きウィザードナビ） ── */}
+      {/* ── タブ ── */}
       <div className="flex gap-0.5 mb-4 border-b border-gray-200/80 overflow-x-auto">
-        {tabDefs.map(td=>{const locked=isLocked(td.key);const reason=lockReason(td.key);return(
+        {tabDefs.map(td=>{const locked=isTabLocked(td.key);const reason=tabLockReason(td.key);const isCurrentWiz=BM&&td.wizStep!==undefined&&wizStep===td.wizStep;return(
           <button key={td.key}
             onClick={()=>goTab(td.key)}
             disabled={locked}
@@ -222,62 +312,80 @@ export default function Home() {
               locked
                 ?"border-transparent text-gray-300 cursor-not-allowed bg-gray-50/50"
                 :tab===td.key
-                  ?"border-sky-500 text-sky-700 bg-sky-50/60"
+                  ?isCurrentWiz
+                    ?"border-rose-400 text-rose-700 bg-rose-50/60"
+                    :"border-sky-500 text-sky-700 bg-sky-50/60"
                   :"border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
             }`}>
             <span className="mr-1">{td.icon}</span>
-            {td.step?`${td.step}. `:""}{td.label}
+            {BM&&td.wizStep?`${td.wizStep}. `:""}{td.label}
             {locked&&<span className="ml-1 text-gray-300">🔒</span>}
+            {isCurrentWiz&&tab===td.key&&<span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full animate-pulse"/>}
           </button>
         );})}
       </div>
 
       {/* ── タブコンテンツ ── */}
-      <div className="bg-white/90 backdrop-blur rounded-xl border border-gray-200/80 p-4 shadow-sm">
+      <div className={`bg-white/90 backdrop-blur rounded-xl border p-4 shadow-sm transition-all ${BM&&tab===tabForStep[wizStep]?"border-rose-300 ring-1 ring-rose-200":"border-gray-200/80"}`}>
         {tab==="staff"&&(
           <>
             <StaffPanel staffList={staffList} setStaffList={setStaffList} enabledTargets={enabledTargets}/>
-            {hasStaff&&(
-              <div className="mt-4 pt-4 border-t border-gray-200 flex items-center gap-3">
-                <button onClick={()=>setTab("requirements")} className="bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:shadow-lg active:scale-[0.97] transition-all">
-                  次へ → 必要人数設定
-                </button>
-                <span className="text-xs text-gray-400">スタッフ{staffList.length}名を登録済み</span>
-              </div>
+            {/* 通常モード: 常に次へ表示 / 初心者モード: step3のみ */}
+            {hasStaff&&(!BM||wizStep===3)&&(
+              <NextBtn onClick={()=>{if(BM)wizNext(4,"requirements");else setTab("requirements");}}
+                label="次へ → 必要人数設定" sub={`スタッフ${staffList.length}名を登録済み`}/>
             )}
           </>
         )}
         {tab==="requirements"&&(
           <>
             <ReqPanel year={year} month={month} dailyReqs={dailyReqs} setDailyReqs={setDailyReqs} enabledWork={enabledWork} nightEnabled={config.enabledShifts.night}/>
-            <div className="mt-4 pt-4 border-t border-gray-200 flex items-center gap-3">
-              <button onClick={()=>setTab("prefs")} className="bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:shadow-lg active:scale-[0.97] transition-all">
-                次へ → 勤務希望入力
-              </button>
-            </div>
+            {(!BM||wizStep===4)&&(
+              <NextBtn onClick={()=>{if(BM)wizNext(5,"prefs");else setTab("prefs");}} label="次へ → 勤務希望入力"/>
+            )}
           </>
         )}
         {tab==="prefs"&&(
           <>
             <PrefsPanel staffList={staffList} prefs={prefs} setPrefs={setPrefs} year={year} month={month} enabledDisplay={enabledDisplay} nightEnabled={config.enabledShifts.night}/>
-            <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <button onClick={handleGenerate} disabled={!canGenerate}
-                  className={`px-8 py-3 rounded-xl text-base font-bold shadow-md transition-all active:scale-[0.97] ${
-                    canGenerate
-                      ?"bg-gradient-to-r from-sky-500 to-indigo-500 text-white hover:shadow-lg hover:from-sky-600 hover:to-indigo-600"
-                      :"bg-gray-200 text-gray-400 cursor-not-allowed shadow-none"
-                  }`}>
-                  ⚡ シフトを自動作成
+            {/* 初心者モード step5: スキップ or 次へ */}
+            {BM&&wizStep===5&&(
+              <div className="mt-4 pt-4 border-t border-gray-200 flex flex-wrap items-center gap-3">
+                <button onClick={()=>wizNext(6)} className="bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:shadow-lg active:scale-[0.97] transition-all">
+                  次へ → シフト自動作成
                 </button>
-                {!canGenerate&&!hasStaff&&<span className="text-xs text-gray-400">← スタッフを登録してください</span>}
-                {!canGenerate&&hasStaff&&!hasAnyEnabled&&<span className="text-xs text-gray-400">← 使用する勤務種類を1つ以上選んでください</span>}
-                {canGenerate&&hasShiftData&&<span className="text-xs text-gray-400">※ 再度作成すると現在のシフト表は上書きされます</span>}
+                <button onClick={()=>wizNext(6)} className="text-xs text-gray-400 hover:text-gray-600 underline">希望を入力せず次へ進む</button>
               </div>
-              {canGenerate&&!hasPrefs&&(
-                <p className="text-xs text-gray-400">※ 勤務希望を入れなくてもシフトは作成できます</p>
-              )}
-            </div>
+            )}
+            {/* 初心者モード step6: 生成ボタン */}
+            {BM&&wizStep===6&&(
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <div className={`rounded-xl p-4 ${stepHighlight(6)}`}>
+                  <p className="text-sm font-bold text-rose-700 mb-3">⑥ すべての設定が完了しました。シフトを自動作成しましょう！</p>
+                  <button onClick={handleGenerate}
+                    className="px-8 py-3 rounded-xl text-base font-bold shadow-lg bg-gradient-to-r from-rose-500 to-pink-500 text-white hover:shadow-xl hover:from-rose-600 hover:to-pink-600 active:scale-[0.97] transition-all">
+                    ⚡ シフトを自動作成
+                  </button>
+                </div>
+              </div>
+            )}
+            {/* 通常モード: 従来通り */}
+            {!BM&&(
+              <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <button onClick={handleGenerate} disabled={!canGenerate}
+                    className={`px-8 py-3 rounded-xl text-base font-bold shadow-md transition-all active:scale-[0.97] ${
+                      canGenerate?"bg-gradient-to-r from-sky-500 to-indigo-500 text-white hover:shadow-lg hover:from-sky-600 hover:to-indigo-600":"bg-gray-200 text-gray-400 cursor-not-allowed shadow-none"
+                    }`}>
+                    ⚡ シフトを自動作成
+                  </button>
+                  {!canGenerate&&!hasStaff&&<span className="text-xs text-gray-400">← スタッフを登録してください</span>}
+                  {!canGenerate&&hasStaff&&!hasAnyEnabled&&<span className="text-xs text-gray-400">← 使用する勤務種類を1つ以上選んでください</span>}
+                  {canGenerate&&hasShiftData&&<span className="text-xs text-gray-400">※ 再度作成すると現在のシフト表は上書きされます</span>}
+                </div>
+                {canGenerate&&!hasPrefs&&<p className="text-xs text-gray-400">※ 勤務希望を入れなくてもシフトは作成できます</p>}
+              </div>
+            )}
           </>
         )}
         {tab==="shift"&&<ShiftPanel staffList={staffList} assignments={assignments} setAssignments={setAssignments} year={year} month={month} enabledAssign={enabledAssign} enabledDisplay={enabledDisplay} nightEnabled={config.enabledShifts.night} onConfirm={handleConfirm} isConfirmed={isConfirmed} carryover={carryover} prevYM={ym(py,pm)} prevConfirmed={prevConfirmed}/>}

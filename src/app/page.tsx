@@ -18,7 +18,7 @@ import {
   loadCustomShifts, saveCustomShifts,
 } from "@/lib/storage";
 import { generateShift } from "@/lib/scheduler";
-import { getHolidayName, isRestDay } from "@/lib/holidays";
+import { getHolidayName } from "@/lib/holidays";
 import { checkShift } from "@/lib/warnings";
 
 type Tab = "staff"|"requirements"|"prefs"|"shift"|"report";
@@ -202,22 +202,28 @@ export default function Home() {
   ];
 
   // 初心者モード: タブロック判定
+  // 到達済みかつ前提条件を満たしていればアクセス可能。未到達 or 前提崩れならロック
   const tabForStep:{[k:number]:Tab} = {3:"staff",4:"requirements",5:"prefs",6:"prefs",7:"shift"};
   const isTabLocked = (key:Tab):boolean => {
     if(!BM) return false;
-    if(key==="staff") return wizStep<3;
-    if(key==="requirements") return wizStep<4;
-    if(key==="prefs") return wizStep<5;
-    if(key==="shift") return wizStep<7;
-    if(key==="report") return wizStep<7;
+    if(key==="staff") return wizStep<3 || !hasAnyEnabled;
+    if(key==="requirements") return wizStep<4 || !hasStaff;
+    if(key==="prefs") return wizStep<5 || !hasStaff;
+    if(key==="shift") return wizStep<7 || !hasShiftData;
+    if(key==="report") return wizStep<7 || !hasShiftData;
     return false;
   };
   const tabLockReason = (key:Tab):string => {
     if(!BM) return "";
     if(key==="staff"&&wizStep<3) return "先に対象月と勤務種類を選んでください";
+    if(key==="staff"&&!hasAnyEnabled) return "使用する勤務種類を1つ以上選んでください";
     if(key==="requirements"&&wizStep<4) return "先にスタッフを登録してください";
+    if(key==="requirements"&&!hasStaff) return "先にスタッフを登録してください";
     if(key==="prefs"&&wizStep<5) return "先に必要人数を設定してください";
+    if(key==="prefs"&&!hasStaff) return "先にスタッフを登録してください";
+    if(key==="shift"&&!hasShiftData) return "シフトを自動作成すると表示されます";
     if(key==="shift"&&wizStep<7) return "シフトを自動作成すると表示されます";
+    if(key==="report"&&!hasShiftData) return "シフトを自動作成すると表示されます";
     if(key==="report"&&wizStep<7) return "シフトを自動作成すると表示されます";
     return "";
   };
@@ -284,17 +290,21 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 初心者モード: ステップ進捗バー */}
+        {/* 初心者モード: ステップ進捗バー（到達済みステップはクリック可能） */}
         {BM&&(
           <div className="mb-3 flex items-center gap-0.5 overflow-x-auto text-[10px]">
-            {WIZ_STEPS.map(s=>(
+            {WIZ_STEPS.map(s=>{
+              const reachable=s.n<=wizStep;
+              const stepTab:{[k:number]:Tab|null}={1:null,2:null,3:"staff",4:"requirements",5:"prefs",6:"prefs",7:"shift"};
+              const onClick=reachable?()=>{const t=stepTab[s.n];if(t)setTab(t);}:undefined;
+              return(
               <div key={s.n} className="flex items-center gap-0.5">
                 {s.n>1&&<span className="text-gray-300">›</span>}
-                <span className={`whitespace-nowrap px-1.5 py-0.5 rounded-full font-medium ${
-                  wizStep===s.n?"bg-rose-100 text-rose-700 font-bold":s.done?"text-emerald-600":"text-gray-400"
+                <span onClick={onClick} className={`whitespace-nowrap px-1.5 py-0.5 rounded-full font-medium ${
+                  wizStep===s.n?"bg-rose-100 text-rose-700 font-bold":s.done?"text-emerald-600 cursor-pointer hover:underline":"text-gray-400"
                 }`}>{s.done?"✓":s.n}. {s.label}</span>
-              </div>
-            ))}
+              </div>);
+            })}
           </div>
         )}
 
@@ -322,7 +332,7 @@ export default function Home() {
             {TOGGLEABLE_SHIFTS.map(key=>(
               <label key={key} className="flex items-center gap-1.5 cursor-pointer select-none group">
                 <button type="button" onClick={()=>setConfig({...config,enabledShifts:{...config.enabledShifts,[key]:!config.enabledShifts[key]}})}
-                  disabled={BM&&wizStep!==2}
+                  disabled={BM&&wizStep<2}
                   className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${config.enabledShifts[key]?"bg-sky-500 border-sky-500 text-white shadow-sm":"border-gray-300 bg-white group-hover:border-sky-300"}`}>
                   {config.enabledShifts[key]&&<svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
                 </button>
@@ -333,7 +343,7 @@ export default function Home() {
             {customShifts.map(cs=>(
               <label key={cs.id} className="flex items-center gap-1.5 cursor-pointer select-none group">
                 <button type="button" onClick={()=>{const next=customShifts.map(c=>c.id===cs.id?{...c,enabled:!c.enabled}:c);setCustomShifts(next);setConfig({...config,enabledShifts:{...config.enabledShifts,[cs.id]:!cs.enabled}});}}
-                  disabled={BM&&wizStep!==2}
+                  disabled={BM&&wizStep<2}
                   className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${cs.enabled?"bg-teal-500 border-teal-500 text-white shadow-sm":"border-gray-300 bg-white group-hover:border-teal-300"}`}>
                   {cs.enabled&&<svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
                 </button>
@@ -342,7 +352,7 @@ export default function Home() {
             ))}
           </div>
           {/* カスタム勤務 追加/管理 */}
-          <CustomShiftManager customShifts={customShifts} setCustomShifts={setCustomShifts} config={config} setConfig={setConfig} disabled={BM&&wizStep!==2} onDelete={handleDeleteCustomShift}/>
+          <CustomShiftManager customShifts={customShifts} setCustomShifts={setCustomShifts} config={config} setConfig={setConfig} disabled={BM&&wizStep<2} onDelete={handleDeleteCustomShift}/>
           {BM&&wizStep===2&&(
             <button type="button" onClick={()=>{if(hasAnyEnabled)wizNext(3,"staff");}} disabled={!hasAnyEnabled}
               className={`mt-2 text-xs font-bold px-4 py-1.5 rounded-lg shadow active:scale-[0.97] transition-all ${hasAnyEnabled?"bg-rose-500 text-white hover:bg-rose-600 cursor-pointer":"bg-gray-200 text-gray-400 cursor-not-allowed"}`}>
@@ -381,9 +391,9 @@ export default function Home() {
         {tab==="staff"&&(
           <>
             <StaffPanel staffList={staffList} setStaffList={setStaffList} enabledTargets={enabledTargets} customShifts={customShifts}/>
-            {/* 通常モード: 常に次へ表示 / 初心者モード: step3のみ */}
-            {hasStaff&&(!BM||wizStep===3)&&(
-              <NextBtn onClick={()=>{if(BM)wizNext(4,"requirements");else setTab("requirements");}}
+            {/* 通常モード: 常に次へ表示 / 初心者モード: step3到達済みなら表示 */}
+            {hasStaff&&(!BM||wizStep>=3)&&(
+              <NextBtn onClick={()=>{if(BM){if(wizStep<4)wizNext(4,"requirements");else setTab("requirements");}else setTab("requirements");}}
                 label="次へ → 必要人数設定" sub={`スタッフ${staffList.length}名を登録済み`}/>
             )}
           </>
@@ -391,33 +401,35 @@ export default function Home() {
         {tab==="requirements"&&(
           <>
             <ReqPanel year={year} month={month} dailyReqs={dailyReqs} setDailyReqs={setDailyReqs} enabledWork={enabledWork} nightEnabled={config.enabledShifts.night} customShifts={customShifts}/>
-            {(!BM||wizStep===4)&&(
-              <NextBtn onClick={()=>{if(BM)wizNext(5,"prefs");else setTab("prefs");}} label="次へ → 勤務希望入力"/>
+            {(!BM||wizStep>=4)&&(
+              <NextBtn onClick={()=>{if(BM){if(wizStep<5)wizNext(5,"prefs");else setTab("prefs");}else setTab("prefs");}} label="次へ → 勤務希望入力"/>
             )}
           </>
         )}
         {tab==="prefs"&&(
           <>
             <PrefsPanel staffList={staffList} prefs={prefs} setPrefs={setPrefs} year={year} month={month} enabledDisplay={enabledDisplay} nightEnabled={config.enabledShifts.night} customShifts={customShifts}/>
-            {/* 初心者モード step5: スキップ or 次へ */}
-            {BM&&wizStep===5&&(
-              <div className="relative z-10 mt-4 pt-4 border-t border-gray-200 flex flex-wrap items-center gap-3">
-                <button type="button" onClick={()=>wizNext(6)} className="relative z-10 bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:shadow-lg active:scale-[0.97] transition-all cursor-pointer">
-                  次へ → シフト自動作成
-                </button>
-                <button type="button" onClick={()=>wizNext(6)} className="relative z-10 text-xs text-gray-400 hover:text-gray-600 underline cursor-pointer">希望を入力せず次へ進む</button>
-              </div>
-            )}
-            {/* 初心者モード step6: 生成ボタン */}
-            {BM&&wizStep===6&&(
-              <div className="relative z-10 mt-4 pt-4 border-t border-gray-200">
-                <div className={`rounded-xl p-4 ${stepHighlight(6)}`}>
-                  <p className="text-sm font-bold text-rose-700 mb-3">⑥ すべての設定が完了しました。シフトを自動作成しましょう！</p>
-                  <button type="button" onClick={handleGenerate}
-                    className="relative z-10 px-8 py-3 rounded-xl text-base font-bold shadow-lg bg-gradient-to-r from-rose-500 to-pink-500 text-white hover:shadow-xl hover:from-rose-600 hover:to-pink-600 active:scale-[0.97] transition-all cursor-pointer">
-                    ⚡ シフトを自動作成
-                  </button>
-                </div>
+            {/* 初心者モード step5+: 次へ or 生成 */}
+            {BM&&wizStep>=5&&(
+              <div className="relative z-10 mt-4 pt-4 border-t border-gray-200 space-y-3">
+                {wizStep===5&&(
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button type="button" onClick={()=>wizNext(6)} className="relative z-10 bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:shadow-lg active:scale-[0.97] transition-all cursor-pointer">
+                      次へ → シフト自動作成
+                    </button>
+                    <button type="button" onClick={()=>wizNext(6)} className="relative z-10 text-xs text-gray-400 hover:text-gray-600 underline cursor-pointer">希望を入力せず次へ進む</button>
+                  </div>
+                )}
+                {wizStep>=6&&(
+                  <div className={`rounded-xl p-4 ${stepHighlight(6)}`}>
+                    {wizStep===6&&<p className="text-sm font-bold text-rose-700 mb-3">⑥ すべての設定が完了しました。シフトを自動作成しましょう！</p>}
+                    <button type="button" onClick={handleGenerate}
+                      className="relative z-10 px-8 py-3 rounded-xl text-base font-bold shadow-md bg-gradient-to-r from-rose-500 to-pink-500 text-white hover:shadow-xl hover:from-rose-600 hover:to-pink-600 active:scale-[0.97] transition-all cursor-pointer">
+                      ⚡ シフトを自動作成{hasShiftData?" (再作成)":""}
+                    </button>
+                    {hasShiftData&&<p className="text-xs text-gray-400 mt-1">※ 再度作成すると現在のシフト表は上書きされます</p>}
+                  </div>
+                )}
               </div>
             )}
             {/* 通常モード: 従来通り */}
@@ -547,7 +559,7 @@ function ReqPanel({year,month,dailyReqs,setDailyReqs,enabledWork,nightEnabled,cu
   const numDays=new Date(year,month,0).getDate();
   const days=Array.from({length:numDays},(_,i)=>i+1);
   const ds=(d:number)=>fmtDate(year,month,d);
-  const getReq=(d:number):DailyRequirement=>{const k=ds(d);if(dailyReqs[k])return dailyReqs[k];return isRestDay(year,month,d)?{day:3,night:2}:{day:5,night:2};};
+  const getReq=(d:number):DailyRequirement=>{const k=ds(d);return dailyReqs[k]||{};};
   const setReq=(d:number,st:ShiftType,val:number)=>{const k=ds(d);setDailyReqs({...dailyReqs,[k]:{...getReq(d),[st]:val}});};
   const nonNightWork=enabledWork.filter(s=>s!=="night");
   return (
@@ -556,7 +568,7 @@ function ReqPanel({year,month,dailyReqs,setDailyReqs,enabledWork,nightEnabled,cu
         <h2 className="text-lg font-bold text-gray-800">📋 必要人数設定 <span className="text-sm font-normal text-gray-400">({year}年{month}月)</span></h2>
         <button type="button" onClick={()=>setDailyReqs({})} className="bg-gray-50 text-gray-500 border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all">初期値に戻す</button>
       </div>
-      <p className="text-xs text-gray-400">各日に必要な勤務者数を設定します。数字を直接書き換えてください。土日・祝日はあらかじめ少なめの値が入っています。</p>
+      <p className="text-xs text-gray-400">各日に必要な勤務者数を設定します。数字を直接書き換えてください。初期値は0です。</p>
       <div className="overflow-x-auto border border-gray-200 rounded-lg">
         <table className="text-xs sm:text-sm border-collapse w-max">
           <thead><tr>

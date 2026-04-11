@@ -1,15 +1,15 @@
 import {
   ShiftAssignment, ShiftType, Staff, ShiftPreference, ShiftConfig,
   DailyRequirement, DEFAULT_CONFIG, WORK_SHIFTS, Carryover,
-  WEEKDAY_TEMPLATE, WEEKEND_TEMPLATE, CustomShift, isCustomShift,
+  CustomShift, isCustomShift,
 } from "./types";
 import { isRestDay } from "./holidays";
 
 function daysIn(y:number,m:number){return new Date(y,m,0).getDate();}
 function fmt(y:number,m:number,d:number){return`${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;}
 
-function defaultReq(y:number,m:number,d:number):DailyRequirement{
-  return isRestDay(y,m,d)?{...WEEKEND_TEMPLATE}:{...WEEKDAY_TEMPLATE};
+function defaultReq(_y:number,_m:number,_d:number):DailyRequirement{
+  return {};
 }
 
 /** Check if staff can work on a given day based on attendance pattern */

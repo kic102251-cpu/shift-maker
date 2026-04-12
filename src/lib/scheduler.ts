@@ -149,6 +149,12 @@ export function generateShift(
         const canNight=(si:number):boolean=>{
           if(matrix[si][d]!==null)return false;
           if(matrix[si][d+1]!==null)return false;
+          // Exclude staff whose night target is 0
+          if(shiftTargets["night"][si]<=0)return false;
+          // Enforce night interval: no new night set if deep_night within last 2 days
+          for(let back=1;back<=2&&d-back>=1;back++){
+            if(matrix[si][d-back]==="deep_night")return false;
+          }
           return true;
         };
         const cands=Array.from({length:n},(_,i)=>i).filter(canNight);

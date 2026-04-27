@@ -38,8 +38,8 @@ function totalWork(c:Counts, customWorkIds?:string[]){
 function shuffle<T>(a:T[]):T[]{const r=[...a];for(let i=r.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[r[i],r[j]]=[r[j],r[i]];}return r;}
 
 /* ── Hard-constraint constants ── */
-/** Maximum consecutive working days (医療安全上の絶対上限). */
-const MAX_CONSECUTIVE = 5;
+/** Maximum consecutive working days (医療安全上の絶対上限). Exported for UI display. */
+export const MAX_CONSECUTIVE = 5;
 
 /**
  * Returns true if the shift counts as "working" for consecutive-day counting.

@@ -62,7 +62,7 @@ export function checkShift(
       });
     }
 
-    // 2. deep_night followed by non-off
+    // 2. deep_night followed by non-off (hard constraint violation)
     for (let d = 1; d < numDays; d++) {
       if (row.get(d) === "deep_night") {
         const next = row.get(d + 1);
@@ -70,6 +70,20 @@ export function checkShift(
           warnings.push({
             level: "error",
             message: `${name}さんの${month}/${d + 1}は深夜明けのため休みが望ましいですが、${shiftLabel(next, customShifts)}が入っています`,
+          });
+        }
+      }
+    }
+
+    // 2b. deep_night → off → work (回復日翌日勤務パターン)
+    for (let d = 1; d + 2 <= numDays; d++) {
+      if (row.get(d) === "deep_night") {
+        const d1 = row.get(d + 1) ?? "off";
+        const d2 = row.get(d + 2) ?? "off";
+        if ((d1 === "off" || d1 === "req_off") && isWork(d2)) {
+          warnings.push({
+            level: "warn",
+            message: `${name}さん: ${month}/${d}深夜→${month}/${d+1}休み→${month}/${d+2}勤務は回復時間が短いパターンです`,
           });
         }
       }
@@ -106,6 +120,34 @@ export function checkShift(
       warnings.push({
         level: Math.abs(diff) >= 3 ? "error" : "warn",
         message: `${name}さんの夜勤回数が目標と${Math.abs(diff)}回ずれています（目標${nightTarget}回 → 今月${semiCount}回）`,
+      });
+    }
+  }
+
+  // 5. Night skill balance: warn if a night set has NO mid/leader staff
+  //    (checks each date that has at least one semi_night assigned)
+  const numDays2 = numDays; // alias for clarity
+  const mp2 = mp;
+  const nightDates = new Set<number>();
+  for (const a of assignments) {
+    if (a.date.startsWith(mp2) && a.shift === "semi_night") {
+      nightDates.add(parseInt(a.date.split("-")[2]));
+    }
+  }
+  for (const d of nightDates) {
+    const nightStaff = staffList.filter(s => {
+      const row = grid.get(s.id);
+      return row?.get(d) === "semi_night";
+    });
+    if (nightStaff.length === 0) continue;
+    const hasExperienced = nightStaff.some(
+      s => s.skillLevel === "leader" || s.skillLevel === "mid" || s.canLead
+    );
+    if (!hasExperienced) {
+      const names = nightStaff.map(s => s.name).join("・");
+      warnings.push({
+        level: "warn",
+        message: `${month}/${d}の夜勤（準夜）は新人のみの構成です（${names}）。中堅以上のスタッフ配置を検討してください`,
       });
     }
   }

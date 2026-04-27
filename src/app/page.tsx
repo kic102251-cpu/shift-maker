@@ -18,7 +18,7 @@ import {
   loadConfirmed, saveConfirmed, loadConfirmedMonths, saveConfirmedMonths,
   loadCustomShifts, saveCustomShifts,
 } from "@/lib/storage";
-import { generateShift } from "@/lib/scheduler";
+import { generateShift, MAX_CONSECUTIVE } from "@/lib/scheduler";
 import { getHolidayName } from "@/lib/holidays";
 import { checkShift } from "@/lib/warnings";
 
@@ -563,6 +563,10 @@ function StaffPanel({staffList,setStaffList,enabledTargets,customShifts}:{staffL
                       </label>
                     </div>
                   </div>
+                  {/* P0-2: スキル制約の実装状況を明示 */}
+                  <p className="mt-2 text-[10px] text-gray-400 bg-gray-50 border border-gray-100 rounded px-2 py-1 leading-relaxed">
+                    ℹ スキルレベル・経験年数・リーダー可否は表示・管理用です。夜勤の「新人のみ禁止」チェックは警告として機能します。夜勤スキル構成のハード制約（特定組み合わせの強制など）は現時点で未実装です。
+                  </p>
                   {(s.attendance||"full")==="custom"&&(
                     <div className="flex items-center gap-2 mt-2 text-xs"><span className="text-gray-500">出勤可能曜日:</span>
                       {DOW_NAMES.map((dn,i)=>(<label key={i} className="flex items-center gap-0.5 cursor-pointer select-none">
@@ -715,7 +719,7 @@ function PrefsPanel({staffList,prefs,setPrefs,year,month,enabledDisplay,nightEna
   return (
     <div className="space-y-3">
       <h2 className="text-lg font-bold text-gray-800">✋ 勤務希望入力 <span className="text-sm font-normal text-gray-400">({year}年{month}月)</span></h2>
-      <p className="text-xs text-gray-400">スタッフの希望勤務を入力します。表のマスをクリックすると勤務種類を選べます（1人あたり月5件まで）。</p>
+      <p className="text-xs text-gray-400">スタッフの希望勤務を入力します。表のマスをクリックすると勤務種類を選べます（1人あたり月10件まで）。</p>
       {staffList.length===0&&(
         <div className="text-center py-8 bg-gray-50 rounded-lg border border-dashed border-gray-300">
           <p className="text-gray-400 text-sm">先に「👤スタッフ登録」タブでスタッフを登録してください</p>
@@ -735,9 +739,9 @@ function PrefsPanel({staffList,prefs,setPrefs,year,month,enabledDisplay,nightEna
                 <td key={d} className={`border-b border-gray-100 px-0.5 py-0.5 text-center cursor-pointer select-none relative transition ${pref?`${getShiftBg(pref)} ${getShiftText(pref)} font-bold`:"hover:bg-sky-50/60"}`} onClick={()=>setEditing(isEd?null:{staffId:s.id,day:d})}>
                   {pref?getShiftShort(pref,customShifts):""}
                   {isEd&&(<div ref={ddRef} className="absolute z-30 top-full left-1/2 -translate-x-1/2 mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[56px]" onClick={e=>e.stopPropagation()}>
-                    {selectable.map(opt=>{const atLimit=prefCnt(s.id)>=5&&!getPref(s.id,d);return(<button key={opt.key} onClick={()=>{if(atLimit)return;selectPref(s.id,d,opt.shift);}} className={`block w-full px-2 py-1.5 text-xs text-left whitespace-nowrap transition ${atLimit?"text-gray-300 cursor-not-allowed":pref===opt.shift?"font-bold bg-sky-50":"hover:bg-sky-50"}`} disabled={atLimit}><span className={`inline-block w-3 h-3 rounded mr-1 align-middle ${getShiftBg(opt.shift)}`}/>{opt.label}</button>);})}
+                    {selectable.map(opt=>{const atLimit=prefCnt(s.id)>=10&&!getPref(s.id,d);return(<button key={opt.key} onClick={()=>{if(atLimit)return;selectPref(s.id,d,opt.shift);}} className={`block w-full px-2 py-1.5 text-xs text-left whitespace-nowrap transition ${atLimit?"text-gray-300 cursor-not-allowed":pref===opt.shift?"font-bold bg-sky-50":"hover:bg-sky-50"}`} disabled={atLimit}><span className={`inline-block w-3 h-3 rounded mr-1 align-middle ${getShiftBg(opt.shift)}`}/>{opt.label}</button>);})}
                     {pref&&(<button type="button" onClick={()=>clearPref(s.id,d)} className="block w-full px-2 py-1.5 text-xs text-left text-red-500 hover:bg-red-50 border-t border-gray-100 mt-0.5">取消</button>)}
-                    {prefCnt(s.id)>=5&&!pref&&<p className="px-2 py-1 text-[10px] text-orange-500 border-t border-gray-100 mt-0.5">月5件まで</p>}
+                    {prefCnt(s.id)>=10&&!pref&&<p className="px-2 py-1 text-[10px] text-orange-500 border-t border-gray-100 mt-0.5">月10件まで</p>}
                   </div>)}
                 </td>);})}
               <td className="sticky right-0 z-20 bg-white border-b border-l border-gray-200 px-2 py-1 text-center font-medium text-gray-600">{prefCnt(s.id)}</td>
@@ -767,7 +771,23 @@ function ShiftPanel({staffList,assignments,setAssignments,year,month,enabledAssi
   const aMap=useMemo(()=>{const m=new Map<string,ShiftAssignment>();for(const a of assignments){if(a.date.startsWith(mp))m.set(`${a.staffId}_${a.date}`,a);}return m;},[assignments,mp]);
   const getShift=(sid:string,d:number)=>aMap.get(`${sid}_${ds(d)}`)?.shift??null;
   const isManual=(sid:string,d:number)=>aMap.get(`${sid}_${ds(d)}`)?.manual===true;
-  const selectShift=(sid:string,d:number,shift:ShiftType)=>{setAssignments(assignments.map(a=>a.staffId===sid&&a.date===ds(d)?{...a,shift,manual:true}:a));setEditing(null);};
+  // P1-5: Toast state for manual-edit violations
+  const [editToast,setEditToast]=useState<{msg:string;level:"error"|"warn"}|null>(null);
+
+  const selectShift=(sid:string,d:number,shift:ShiftType)=>{
+    const newAssignments=assignments.map(a=>a.staffId===sid&&a.date===ds(d)?{...a,shift,manual:true}:a);
+    setAssignments(newAssignments);
+    setEditing(null);
+    // 手動編集後: 対象スタッフの違反を即時チェックしてトースト表示
+    const staffName=staffList.find(s=>s.id===sid)?.name||"";
+    const newWarns=checkShift(staffList,newAssignments,year,month,customShifts)
+      .filter(w=>w.message.includes(staffName));
+    if(newWarns.length>0){
+      const top=newWarns.find(w=>w.level==="error")||newWarns[0];
+      setEditToast({msg:top.message,level:top.level});
+      setTimeout(()=>setEditToast(null),5000);
+    }
+  };
 
   // Warnings
   const warnings=useMemo(()=>checkShift(staffList,assignments,year,month,customShifts),[staffList,assignments,year,month,customShifts]);
@@ -804,19 +824,63 @@ function ShiftPanel({staffList,assignments,setAssignments,year,month,enabledAssi
         </div>
       </div>
 
-      {/* Warnings */}
-      {warnings.length===0?(
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2 text-sm text-emerald-700 font-medium">✓ チェック完了 — 特に気になる点はありません</div>
-      ):(
-        <div className="space-y-1 max-h-40 overflow-y-auto">
-          <p className="text-xs text-gray-400 mb-1">以下の点を確認してみてください（必要に応じて手直しできます）</p>
-          {warnings.map((w,i)=>(
-            <div key={i} className={`rounded-lg px-3 py-1.5 text-xs font-medium ${w.level==="error"?"bg-red-50 border border-red-200 text-red-700":"bg-amber-50 border border-amber-200 text-amber-700"}`}>
-              {w.level==="error"?"⚠ 要確認: ":"💡 お知らせ: "} {w.message}
-            </div>
-          ))}
+      {/* P1-5: 手動編集トースト */}
+      {editToast&&(
+        <div className={`fixed bottom-6 right-6 z-50 max-w-sm rounded-xl px-4 py-3 shadow-lg border text-sm font-medium animate-pulse
+          ${editToast.level==="error"?"bg-red-50 border-red-300 text-red-700":"bg-amber-50 border-amber-300 text-amber-700"}`}>
+          {editToast.level==="error"?"⚠ 手動編集による要確認: ":"💡 手動編集の注意: "}{editToast.msg}
+          <button type="button" onClick={()=>setEditToast(null)} className="ml-2 opacity-50 hover:opacity-100">✕</button>
         </div>
       )}
+
+      {/* P0-1: 構造化チェック結果 */}
+      <div className="border border-gray-200 rounded-xl overflow-hidden">
+        {/* ヘッダー */}
+        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center justify-between">
+          <span className="text-sm font-bold text-gray-700">🔍 自動チェック結果</span>
+          {warnings.filter(w=>w.level==="error").length===0
+            ?<span className="text-xs text-emerald-600 font-medium">要確認項目なし</span>
+            :<span className="text-xs text-red-600 font-bold">要確認 {warnings.filter(w=>w.level==="error").length}件</span>
+          }
+        </div>
+
+        {/* 発見された問題 */}
+        {warnings.length>0&&(
+          <div className="px-4 py-2 space-y-1 max-h-36 overflow-y-auto border-b border-gray-100">
+            <p className="text-[10px] text-gray-400 mb-1">手直しが必要な可能性のある項目：</p>
+            {warnings.map((w,i)=>(
+              <div key={i} className={`rounded px-2 py-1 text-xs font-medium ${w.level==="error"?"bg-red-50 border border-red-200 text-red-700":"bg-amber-50 border border-amber-100 text-amber-700"}`}>
+                {w.level==="error"?"⚠ ":"💡 "}{w.message}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 確認済み / 未確認の明示 */}
+        <div className="grid grid-cols-2 divide-x divide-gray-100">
+          <div className="px-3 py-2">
+            <p className="text-[10px] font-bold text-emerald-700 mb-1">✅ 確認済み項目</p>
+            <ul className="text-[10px] text-gray-600 space-y-0.5">
+              <li>• 最大連続勤務（上限 {MAX_CONSECUTIVE} 日）</li>
+              <li>• 深夜明け翌日日勤禁止</li>
+              <li>• 深夜→休み→勤務パターン</li>
+              <li>• 準夜→深夜セット整合</li>
+              <li>• 夜勤回数（目標との差異）</li>
+              <li>• 夜勤の新人のみ構成</li>
+            </ul>
+          </div>
+          <div className="px-3 py-2">
+            <p className="text-[10px] font-bold text-gray-500 mb-1">⚪ 未確認（手動でご確認ください）</p>
+            <ul className="text-[10px] text-gray-400 space-y-0.5">
+              <li>• スキルバランスのハード制約</li>
+              <li>• ペア制約・同日同勤務禁止</li>
+              <li>• 曜日・特定日の固定割当</li>
+              <li>• 詳細なインターバル規則</li>
+              <li>• 連休確保</li>
+            </ul>
+          </div>
+        </div>
+      </div>
 
       {/* Carryover data */}
       {hasCarryover&&(
@@ -891,6 +955,23 @@ function ShiftPanel({staffList,assignments,setAssignments,year,month,enabledAssi
           </tbody>
         </table>
       </div>
+
+      {/* P2-6: 未対応制約の注意書き */}
+      <details className="border border-gray-200 rounded-lg">
+        <summary className="px-4 py-2 text-xs text-gray-500 cursor-pointer hover:bg-gray-50 font-medium select-none">
+          ℹ このツールで現在対応していない制約（クリックで展開）
+        </summary>
+        <div className="px-4 py-3 bg-gray-50/60 text-[11px] text-gray-500 space-y-1 border-t border-gray-100">
+          <p className="font-bold text-gray-600 mb-1.5">以下の制約は現在このツールでは未対応です。確定前に手動でご確認ください。</p>
+          <p>• ペア制約（AさんとBさんを同じシフトにしない、など）</p>
+          <p>• 特定日・特定スタッフの固定割当（Cさんを5日のリーダーに固定、など）</p>
+          <p>• 曜日制限（特定スタッフを土曜日勤に入れない、など）</p>
+          <p>• 連休確保（3連休以上のブロック確保）</p>
+          <p>• 夜勤スキル構成のハード制約（リーダー必須の夜勤セットなど）</p>
+          <p>• 月をまたぐインターバル（前月末深夜→翌月1日早番など）</p>
+          <p className="mt-1.5 text-gray-400">これらは将来バージョンで対応予定です。現段階はプロトタイプとしてご利用ください。</p>
+        </div>
+      </details>
 
       {/* Stats */}
       <div>

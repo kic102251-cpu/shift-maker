@@ -1,6 +1,6 @@
 import {
   Staff, ShiftPreference, ShiftAssignment, ShiftConfig, DEFAULT_CONFIG,
-  DailyRequirement, DEFAULT_TARGETS, ConfirmedData, CustomShift,
+  DailyRequirement, DEFAULT_TARGETS, ConfirmedData, CustomShift, SkillLevel,
 } from "./types";
 
 const PFX = "sm6";
@@ -23,7 +23,26 @@ function mkStaff(id: string, name: string): Staff {
 const ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXY".split("");
 const DEF_STAFF: Staff[] = ALPHA.map((n, i) => mkStaff(String(i + 1), n));
 
-export const loadStaff      = () => load(`${PFX}-staff`, DEF_STAFF);
+/** Migrate raw localStorage data: fill optional fields introduced in newer versions */
+function migrateStaff(raw: Staff[]): Staff[] {
+  const validSkillLevels: SkillLevel[] = ["rookie", "mid", "leader"];
+  return raw.map(s => ({
+    ...s,
+    // Phase 1 fields (experienceYears / canLead)
+    experienceYears: s.experienceYears ?? 0,
+    canLead:         s.canLead         ?? false,
+    // Phase 2 field: skillLevel — default "mid" so existing staff stay stable
+    skillLevel: validSkillLevels.includes(s.skillLevel as SkillLevel)
+      ? s.skillLevel
+      : "mid",
+    // Ensure arrays are present
+    customDays: Array.isArray(s.customDays) && s.customDays.length === 7
+      ? s.customDays
+      : [true,true,true,true,true,true,true],
+  }));
+}
+
+export const loadStaff      = (): Staff[] => migrateStaff(load(`${PFX}-staff`, DEF_STAFF));
 export const saveStaff      = (s: Staff[]) => save(`${PFX}-staff`, s);
 export const loadPrefs      = () => load<ShiftPreference[]>(`${PFX}-prefs`, []);
 export const savePrefs      = (p: ShiftPreference[]) => save(`${PFX}-prefs`, p);

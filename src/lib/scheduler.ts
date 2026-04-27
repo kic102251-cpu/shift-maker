@@ -37,11 +37,72 @@ function totalWork(c:Counts, customWorkIds?:string[]){
 
 function shuffle<T>(a:T[]):T[]{const r=[...a];for(let i=r.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[r[i],r[j]]=[r[j],r[i]];}return r;}
 
+/* ── Hard-constraint constants ── */
+/** Maximum consecutive working days (医療安全上の絶対上限). */
+const MAX_CONSECUTIVE = 5;
+
+/**
+ * Returns true if the shift counts as "working" for consecutive-day counting.
+ * Matches the same definition used in warnings.ts for consistency.
+ */
+function isHardWork(s: ShiftType|null): boolean {
+  if (s === null) return false;
+  if (s === "off" || s === "req_off" || s === "annual") return false;
+  return true; // day, semi_night, deep_night, early, late, long_day, standby, training, am, pm, custom…
+}
+
+/**
+ * Counts how many consecutive working days end at d-1 (looking backward).
+ * Used to enforce MAX_CONSECUTIVE before placing a new shift on day d.
+ */
+function consecutiveWorkBefore(matrix:(ShiftType|null)[][], si:number, d:number): number {
+  let streak = 0;
+  for (let day = d - 1; day >= 1 && isHardWork(matrix[si][day]); day--) streak++;
+  return streak;
+}
+
 function sortByTarget(indices:number[],counts:Counts[],countKey:string,targets:number[],customWorkIds?:string[]):number[]{
   return shuffle(indices).sort((a,b)=>{
     const dA=targets[a]-(counts[a][countKey]||0);
     const dB=targets[b]-(counts[b][countKey]||0);
     if(dA!==dB)return dB-dA;
+    return totalWork(counts[a],customWorkIds)-totalWork(counts[b],customWorkIds);
+  });
+}
+
+/**
+ * Skill-aware sort: same as sortByTarget, but with additional tie-breakers:
+ *  1. Target deficit (existing)
+ *  2. If the day still needs leaders → canLead=true staff come first
+ *  3. Experience balance: if the day's current expSum < expected, prefer higher-exp;
+ *     if the day already has enough exp, prefer lower-exp (so veterans disperse)
+ *  4. Total work so far (existing fairness)
+ */
+function sortByTargetSkill(
+  indices:number[],
+  counts:Counts[],
+  countKey:string,
+  targets:number[],
+  customWorkIds:string[]|undefined,
+  leaderNeeded:boolean,
+  isLeader:boolean[],
+  expYears:number[],
+  dayExpSum:number,
+  dayWorkers:number,
+  avgExp:number,
+):number[]{
+  // Expected exp if this day had `dayWorkers+1` average-exp staff placed
+  const expected=(dayWorkers+1)*avgExp;
+  const shortfall=expected-dayExpSum; // >0 → day is exp-poor, prefer higher exp
+  return shuffle(indices).sort((a,b)=>{
+    const dA=targets[a]-(counts[a][countKey]||0);
+    const dB=targets[b]-(counts[b][countKey]||0);
+    if(dA!==dB)return dB-dA;
+    if(leaderNeeded&&isLeader[a]!==isLeader[b])return isLeader[a]?-1:1;
+    if(expYears[a]!==expYears[b]){
+      // If day is exp-poor (shortfall>0), prefer higher exp; else prefer lower
+      return shortfall>=0?(expYears[b]-expYears[a]):(expYears[a]-expYears[b]);
+    }
     return totalWork(counts[a],customWorkIds)-totalWork(counts[b],customWorkIds);
   });
 }
@@ -63,6 +124,11 @@ export function generateShift(
   // Enabled custom work shift IDs
   const enabledCustom=(customShifts||[]).filter(cs=>cs.enabled&&en[cs.id]);
   const customWorkIds=enabledCustom.filter(cs=>cs.isWork).map(cs=>cs.id);
+
+  // Skill vectors (per staff)
+  const isLeader=staffList.map(s=>s.canLead===true);
+  const expYears=staffList.map(s=>s.experienceYears||0);
+  const avgExp=n>0?expYears.reduce((a,b)=>a+b,0)/n:0;
 
   // Targets: for "night" key, compare against semi_night count
   const shiftTargets:Record<string,number[]>={};
@@ -134,10 +200,35 @@ export function generateShift(
     }
   }
 
+  // Helpers for per-day skill tracking
+  const isWorkingShift=(s:ShiftType|null):boolean=>{
+    if(!s)return false;
+    if(s==="semi_night"||s==="deep_night")return true;
+    if(WORK_SHIFTS.includes(s))return true;
+    if(customWorkIds.includes(s))return true;
+    return false;
+  };
+  const countLeadersOn=(d:number):number=>{
+    let c=0;
+    for(let si=0;si<n;si++)if(isLeader[si]&&isWorkingShift(matrix[si][d]))c++;
+    return c;
+  };
+  const sumExpOn=(d:number):number=>{
+    let s=0;
+    for(let si=0;si<n;si++)if(isWorkingShift(matrix[si][d]))s+=expYears[si];
+    return s;
+  };
+  const countWorkersOn=(d:number):number=>{
+    let c=0;
+    for(let si=0;si<n;si++)if(isWorkingShift(matrix[si][d]))c++;
+    return c;
+  };
+
   // Step 2: Day by day
   for(let d=1;d<=numDays;d++){
     const dateStr=fmt(year,month,d);
     const dayReq:DailyRequirement=dailyReqsMap[dateStr]||defaultReq(year,month,d);
+    const leadersTarget=dayReq.leaders||0;
 
     const avail=():number[]=>{const a:number[]=[];for(let si=0;si<n;si++)if(matrix[si][d]===null)a.push(si);return a;};
 
@@ -155,10 +246,16 @@ export function generateShift(
           for(let back=1;back<=2&&d-back>=1;back++){
             if(matrix[si][d-back]==="deep_night")return false;
           }
+          // ── HARD BLOCK 1: max consecutive ──
+          // Night set places 2 work days (semi on d, deep on d+1).
+          // Reject if streak + 2 > MAX_CONSECUTIVE.
+          if(consecutiveWorkBefore(matrix,si,d)+2>MAX_CONSECUTIVE)return false;
           return true;
         };
         const cands=Array.from({length:n},(_,i)=>i).filter(canNight);
-        const sorted=sortByTarget(cands,counts,"semi_night",shiftTargets["night"],customWorkIds);
+        const leaderNeeded=countLeadersOn(d)<leadersTarget;
+        const sorted=sortByTargetSkill(cands,counts,"semi_night",shiftTargets["night"],
+          customWorkIds,leaderNeeded,isLeader,expYears,sumExpOn(d),countWorkersOn(d),avgExp);
         let assigned=0;
         for(const si of sorted){
           if(assigned>=nightNeed)break;
@@ -180,17 +277,29 @@ export function generateShift(
       const need=Math.max(0,(dayReq[st]||0)-already());
       if(need<=0)continue;
       const tgt=shiftTargets[st]||staffList.map(()=>0);
-      const sorted=sortByTarget(avail(),counts,st,tgt,customWorkIds);
+      const leaderNeeded=countLeadersOn(d)<leadersTarget;
+      const sorted=sortByTargetSkill(avail(),counts,st,tgt,customWorkIds,
+        leaderNeeded,isLeader,expYears,sumExpOn(d),countWorkersOn(d),avgExp);
       let assigned=0;
       for(const si of sorted){
         if(assigned>=need)break;
+        // ── HARD BLOCK 1: max consecutive ──
+        if(consecutiveWorkBefore(matrix,si,d)>=MAX_CONSECUTIVE){
+          matrix[si][d]="off"; counts[si].off++; continue;
+        }
+        // ── HARD BLOCK 2: deep_night の翌日は必ず休み ──
+        if(d>1&&matrix[si][d-1]==="deep_night"){
+          matrix[si][d]="off"; counts[si].off++; continue;
+        }
         matrix[si][d]=st as ShiftType; counts[si][st]=(counts[si][st]||0)+1; assigned++;
       }
     }
 
     // Day shifts: fill to meet requirement, then fill up to daily cap
     const isRest=isRestDay(year,month,d);
-    const reqSum=Object.entries(dayReq).reduce((a,[k,v])=>k!=="night"?a+(v||0):a,0);
+    // Exclude "night" and "leaders" (not headcount) from reqSum
+    const reqSum=Object.entries(dayReq).reduce((a,[k,v])=>
+      k!=="night"&&k!=="leaders"?a+(v||0):a,0);
     const dailyCap=isRest?Math.max(reqSum,restCap):Math.max(reqSum,wdCap);
     let dayWorkers=0;
     for(let si=0;si<n;si++){
@@ -199,9 +308,18 @@ export function generateShift(
     }
     const alreadyDay=():number=>{let c=0;for(let si=0;si<n;si++)if(matrix[si][d]==="day")c++;return c;};
     const dayNeed=Math.max((dayReq.day||0)-alreadyDay(),0);
-    const remaining=sortByTarget(avail(),counts,"day",shiftTargets.day,customWorkIds);
+    const leaderNeededDay=countLeadersOn(d)<leadersTarget;
+    const remaining=sortByTargetSkill(avail(),counts,"day",shiftTargets.day,customWorkIds,
+      leaderNeededDay,isLeader,expYears,sumExpOn(d),countWorkersOn(d),avgExp);
     let dayFilled=0;
     for(const si of remaining){
+      // ── HARD BLOCK 2: deep_night の翌日は必ず休み ──
+      const mustOff=(d>1&&matrix[si][d-1]==="deep_night");
+      // ── HARD BLOCK 1: max consecutive ──
+      const tooMany=!mustOff&&consecutiveWorkBefore(matrix,si,d)>=MAX_CONSECUTIVE;
+      if(mustOff||tooMany){
+        matrix[si][d]="off"; counts[si].off++; continue;
+      }
       const tw=numDays-targetOffs[si];
       if(dayFilled<dayNeed||(dayWorkers<dailyCap&&totalWork(counts[si],customWorkIds)<tw)){
         matrix[si][d]="day"; counts[si].day++; dayWorkers++; dayFilled++;
@@ -216,4 +334,64 @@ export function generateShift(
     assignments.push({staffId:staffList[si].id,date:fmt(year,month,d),shift:matrix[si][d]||"off"});
   }
   return assignments;
+}
+
+/**
+ * Verify hard constraints on a generated assignment matrix.
+ * Returns an array of violation descriptions (empty = all OK).
+ * Used for testing / debugging.
+ */
+export function verifyHardConstraints(
+  assignments: ShiftAssignment[],
+  staffList: Staff[],
+  year: number,
+  month: number,
+): string[] {
+  const violations: string[] = [];
+  const numDays = daysIn(year, month);
+  const mp = `${year}-${String(month).padStart(2,"0")}`;
+
+  // Build grid[staffId][day] = shift
+  const grid = new Map<string, Map<number, string>>();
+  for (const s of staffList) grid.set(s.id, new Map());
+  for (const a of assignments) {
+    if (!a.date.startsWith(mp)) continue;
+    const d = parseInt(a.date.split("-")[2]);
+    grid.get(a.staffId)?.set(d, a.shift);
+  }
+
+  for (const s of staffList) {
+    const row = grid.get(s.id);
+    if (!row) continue;
+
+    // Check 1: consecutive working days > MAX_CONSECUTIVE
+    let streak = 0; let streakStart = 1;
+    for (let d = 1; d <= numDays; d++) {
+      const sh = row.get(d) ?? "off";
+      if (isHardWork(sh as ShiftType)) {
+        if (streak === 0) streakStart = d;
+        streak++;
+        if (streak > MAX_CONSECUTIVE) {
+          violations.push(
+            `連勤超過: ${s.name} — ${month}/${streakStart}〜${month}/${d} (${streak}連勤, 上限${MAX_CONSECUTIVE})`
+          );
+        }
+      } else {
+        streak = 0;
+      }
+    }
+
+    // Check 2: deep_night followed by work shift
+    for (let d = 1; d < numDays; d++) {
+      if (row.get(d) === "deep_night") {
+        const next = row.get(d + 1) ?? "off";
+        if (isHardWork(next as ShiftType)) {
+          violations.push(
+            `深夜明け勤務: ${s.name} — ${month}/${d}深夜 → ${month}/${d+1}${next}`
+          );
+        }
+      }
+    }
+  }
+  return violations;
 }

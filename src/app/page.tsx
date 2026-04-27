@@ -9,6 +9,7 @@ import {
   ASSIGNABLE_SHIFTS, DEFAULT_CONFIG, DEFAULT_TARGETS, WORK_SHIFTS,
   ATTENDANCE_LABELS, EMPLOYMENT_LABELS, EMPLOYMENT_BADGE,
   getShiftLabel, getShiftShort, getShiftColors, getShiftBg, getShiftText,
+  SkillLevel, SKILL_LEVEL_LABELS, SKILL_LEVEL_COLORS,
 } from "@/lib/types";
 import {
   loadStaff, saveStaff, loadPrefs, savePrefs,
@@ -275,14 +276,17 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-3">
             {/* 初心者モードトグル */}
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <span className="text-xs text-gray-500 hidden sm:inline">初心者モード</span>
-              <button type="button" onClick={()=>{setBeginnerMode(!beginnerMode);if(!beginnerMode)setWizStep(1);}}
-                className={`relative w-10 h-5 rounded-full transition-colors ${beginnerMode?"bg-rose-400":"bg-gray-300"}`}>
-                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${beginnerMode?"translate-x-5":"translate-x-0.5"}`}/>
-              </button>
-              <span className="text-xs text-gray-500 sm:hidden">{beginnerMode?"初心者":"通常"}</span>
-            </label>
+            <div className="flex flex-col items-end gap-0.5">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <span className="text-xs text-gray-500 hidden sm:inline">初心者モード</span>
+                <button type="button" onClick={()=>{setBeginnerMode(!beginnerMode);if(!beginnerMode)setWizStep(1);}}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${beginnerMode?"bg-rose-400":"bg-gray-300"}`}>
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${beginnerMode?"translate-x-5":"translate-x-0.5"}`}/>
+                </button>
+                <span className="text-xs text-gray-500 sm:hidden">{beginnerMode?"初心者":"通常"}</span>
+              </label>
+              <span className="text-[9px] text-gray-400 hidden sm:block">{beginnerMode?"ステップ順に案内します":"すべての機能に自由にアクセスできます"}</span>
+            </div>
             {/* リセットボタン */}
             <button type="button" onClick={handleReset} className="text-xs text-gray-400 hover:text-rose-500 border border-gray-200 hover:border-rose-300 rounded-lg px-2.5 py-1.5 transition-all" title="すべてのデータを初期化">
               リセット
@@ -351,6 +355,12 @@ export default function Home() {
               </label>
             ))}
           </div>
+          {/* 夜勤ONの場合: 準夜・深夜の説明を追加 */}
+          {config.enabledShifts.night&&(
+            <p className="mt-1.5 text-[10px] text-indigo-500 bg-indigo-50 border border-indigo-100 rounded px-2 py-1 inline-block">
+              夜勤は「準夜」と「深夜」に分かれます（準夜→深夜→休みの3日セット）。必要人数はステップ④で設定します。
+            </p>
+          )}
           {/* カスタム勤務 追加/管理 */}
           <CustomShiftManager customShifts={customShifts} setCustomShifts={setCustomShifts} config={config} setConfig={setConfig} disabled={BM&&wizStep<2} onDelete={handleDeleteCustomShift}/>
           {BM&&wizStep===2&&(
@@ -467,7 +477,7 @@ function StaffPanel({staffList,setStaffList,enabledTargets,customShifts}:{staffL
   const [bulkTargets,setBulkTargets]=useState<ShiftTargets>({...DEFAULT_TARGETS});
 
   const [staffError,setStaffError]=useState("");
-  const addStaff=()=>{const name=newName.trim();if(!name)return;if(staffList.length>=MAX_STAFF){setStaffError(`上限${MAX_STAFF}人です`);return;}setStaffError("");setStaffList([...staffList,{id:String(Date.now()),name,monthlyOffDays:10,targets:{...DEFAULT_TARGETS},attendance:"full",customDays:[true,true,true,true,true,true,true],employment:"fulltime"}]);setNewName("");};
+  const addStaff=()=>{const name=newName.trim();if(!name)return;if(staffList.length>=MAX_STAFF){setStaffError(`上限${MAX_STAFF}人です`);return;}setStaffError("");setStaffList([...staffList,{id:String(Date.now()),name,monthlyOffDays:10,targets:{...DEFAULT_TARGETS},attendance:"full",customDays:[true,true,true,true,true,true,true],employment:"fulltime",skillLevel:"mid" as SkillLevel,experienceYears:0,canLead:false}]);setNewName("");};
   const update=(id:string,patch:Partial<Staff>)=>setStaffList(staffList.map(s=>s.id===id?{...s,...patch}:s));
   const applyBulk=()=>{setStaffList(staffList.map(s=>({...s,monthlyOffDays:bulkOff,targets:{...bulkTargets}})));setShowBulk(false);};
 
@@ -499,13 +509,15 @@ function StaffPanel({staffList,setStaffList,enabledTargets,customShifts}:{staffL
             <p className="text-gray-400 text-xs">下の入力欄にお名前を入力して「追加」ボタンを押してください</p>
           </div>
         )}
-        {staffList.map((s,idx)=>{const badge=EMPLOYMENT_BADGE[s.employment||"fulltime"];return(
+        {staffList.map((s,idx)=>{const badge=EMPLOYMENT_BADGE[s.employment||"fulltime"];const sl=(s.skillLevel||"mid") as SkillLevel;return(
           <div key={s.id} className="border border-gray-200 rounded-lg overflow-hidden hover:border-sky-200 transition-colors">
             <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gradient-to-r hover:from-white hover:to-sky-50/40 transition-all" onClick={()=>setExpanded(expanded===s.id?null:s.id)}>
               <span className="text-xs text-gray-400 w-6 text-right font-medium">{idx+1}</span>
               <input value={s.name} onChange={e=>{e.stopPropagation();update(s.id,{name:e.target.value});}} onClick={e=>e.stopPropagation()} className="border border-gray-200 rounded-lg px-2 py-1 text-sm w-20 font-medium focus:ring-2 focus:ring-sky-200 outline-none"/>
+              <Badge text={SKILL_LEVEL_LABELS[sl]} color={SKILL_LEVEL_COLORS[sl]}/>
               {badge&&<Badge text={badge} color={s.employment==="part"?"bg-lime-100 text-lime-700":"bg-orange-100 text-orange-700"}/>}
-              <div className="flex items-center gap-1 text-xs text-gray-500"><span>休</span>
+              <div className="flex items-center gap-1 text-xs text-gray-500">
+                <span className="hidden sm:inline text-gray-400">月間休日数</span><span className="sm:hidden text-gray-400">休</span>
                 <input type="number" min={0} max={28} value={s.monthlyOffDays} onChange={e=>{e.stopPropagation();update(s.id,{monthlyOffDays:Math.max(0,Math.min(28,Number(e.target.value)))});}} onClick={e=>e.stopPropagation()} className="border border-gray-200 rounded px-1 py-0.5 w-10 text-center text-sm focus:ring-2 focus:ring-sky-200 outline-none"/><span>日</span>
               </div>
               <svg className={`ml-auto w-4 h-4 text-gray-400 transition-transform ${expanded===s.id?"rotate-180":""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/></svg>
@@ -515,6 +527,11 @@ function StaffPanel({staffList,setStaffList,enabledTargets,customShifts}:{staffL
               <div className="px-4 py-3 bg-gradient-to-b from-gray-50 to-white border-t border-gray-100 space-y-4">
                 <div><p className="text-xs text-gray-500 mb-2 font-medium">月間目標回数</p>
                   <div className="flex flex-wrap gap-2">{enabledTargets.map(st=>(<div key={st} className="flex items-center gap-1"><Pill st={st} customs={customShifts}/><input type="number" min={0} max={30} value={s.targets[st]||0} onChange={e=>update(s.id,{targets:{...s.targets,[st]:Number(e.target.value)}})} className="border border-gray-200 rounded px-1 py-0.5 w-12 text-center text-sm focus:ring-2 focus:ring-sky-200 outline-none"/><span className="text-gray-400 text-xs">回</span></div>))}</div>
+                  {enabledTargets.includes("night")&&(
+                    <p className="mt-1.5 text-[10px] text-indigo-500 leading-relaxed bg-indigo-50 border border-indigo-100 rounded px-2 py-1">
+                      💡 夜勤目標回数はバランス調整の目安です。実際に夜勤を生成するには、次の「📋 必要人数設定」で準夜・深夜の人数（1以上）を設定してください。
+                    </p>
+                  )}
                 </div>
                 <div><p className="text-xs text-gray-500 mb-2 font-medium">勤務条件</p>
                   <div className="flex flex-wrap gap-4 text-sm">
@@ -527,6 +544,23 @@ function StaffPanel({staffList,setStaffList,enabledTargets,customShifts}:{staffL
                       <select value={s.attendance||"full"} onChange={e=>update(s.id,{attendance:e.target.value as AttendancePattern})} className="border border-gray-200 rounded-lg px-2 py-1 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none">
                         {(Object.keys(ATTENDANCE_LABELS) as AttendancePattern[]).map(k=><option key={k} value={k}>{ATTENDANCE_LABELS[k]}</option>)}
                       </select>
+                    </div>
+                    <div className="flex items-center gap-2"><span className="text-gray-600 text-xs">スキルレベル</span>
+                      <select value={s.skillLevel||"mid"} onChange={e=>update(s.id,{skillLevel:e.target.value as SkillLevel})} className="border border-gray-200 rounded-lg px-2 py-1 text-sm bg-white focus:ring-2 focus:ring-sky-200 outline-none">
+                        {(Object.keys(SKILL_LEVEL_LABELS) as SkillLevel[]).map(k=><option key={k} value={k}>{SKILL_LEVEL_LABELS[k]}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2"><span className="text-gray-600 text-xs">経験年数</span>
+                      <input type="number" min={0} max={50} value={s.experienceYears??0} onChange={e=>update(s.id,{experienceYears:Math.max(0,Math.min(50,Number(e.target.value)))})} className="border border-gray-200 rounded-lg px-2 py-1 w-14 text-center text-sm focus:ring-2 focus:ring-sky-200 outline-none"/>
+                      <span className="text-gray-400 text-xs">年</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <button type="button" onClick={()=>update(s.id,{canLead:!s.canLead})} className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${s.canLead?"bg-purple-500 border-purple-500 text-white":"border-gray-300 bg-white"}`}>
+                          {s.canLead&&<svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
+                        </button>
+                        <span className="text-gray-600 text-xs">リーダー可</span>
+                      </label>
                     </div>
                   </div>
                   {(s.attendance||"full")==="custom"&&(
@@ -562,17 +596,67 @@ function ReqPanel({year,month,dailyReqs,setDailyReqs,enabledWork,nightEnabled,cu
   const getReq=(d:number):DailyRequirement=>{const k=ds(d);return dailyReqs[k]||{};};
   const setReq=(d:number,st:ShiftType,val:number)=>{const k=ds(d);setDailyReqs({...dailyReqs,[k]:{...getReq(d),[st]:val}});};
   const nonNightWork=enabledWork.filter(s=>s!=="night");
+
+  // サンプル入力: 日勤5名・夜勤2セット/日を全日に適用
+  const [sampleDay,setSampleDay]=useState(5);
+  const [sampleNight,setSampleNight]=useState(2);
+  const applySample=()=>{
+    const next:Record<string,DailyRequirement>={};
+    for(let d=1;d<=numDays;d++){
+      const k=ds(d);
+      next[k]={...getReq(d)};
+      if(sampleDay>0)next[k].day=sampleDay;
+      if(nightEnabled&&sampleNight>0)next[k].night=sampleNight;
+    }
+    setDailyReqs({...dailyReqs,...next});
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-bold text-gray-800">📋 必要人数設定 <span className="text-sm font-normal text-gray-400">({year}年{month}月)</span></h2>
         <button type="button" onClick={()=>setDailyReqs({})} className="bg-gray-50 text-gray-500 border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all">初期値に戻す</button>
       </div>
-      <p className="text-xs text-gray-400">各日に必要な勤務者数を設定します。数字を直接書き換えてください。初期値は0です。</p>
+
+      {/* ── 重要: 0のままだと勤務が生成されない旨の警告 ── */}
+      <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 space-y-1.5">
+        <p className="text-sm font-bold text-amber-800">⚠ 重要: 必要人数が 0 のままの勤務は自動配置されません</p>
+        <p className="text-xs text-amber-700 leading-relaxed">
+          ここで設定した人数をもとに、各日の勤務者が割り当てられます。<br/>
+          <span className="font-semibold">たとえば夜勤を作成したい場合は、「準夜」の行に 1 以上の数字を入力してください。</span><br/>
+          スタッフごとの「夜勤目標回数」だけでは夜勤は自動配置されません。<br/>
+          準夜・深夜はセットで動き、両行は同じ値（夜勤セット数）で設定されます。
+        </p>
+      </div>
+
+      {/* ── P1-5: サンプル入力 / 全日一括設定 ── */}
+      <div className="bg-sky-50 border border-sky-200 rounded-xl px-4 py-3">
+        <p className="text-xs font-bold text-sky-800 mb-2">🚀 全日に同じ人数を一括設定</p>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-600 text-xs">日勤</span>
+            <input type="number" min={0} max={99} value={sampleDay} onChange={e=>setSampleDay(Number(e.target.value))} className="border border-gray-200 rounded-lg px-2 py-1 w-14 text-center text-sm focus:ring-2 focus:ring-sky-200 outline-none"/>
+            <span className="text-gray-400 text-xs">名</span>
+          </div>
+          {nightEnabled&&(
+            <div className="flex items-center gap-1.5">
+              <span className="text-gray-600 text-xs">夜勤（セット数）</span>
+              <input type="number" min={0} max={99} value={sampleNight} onChange={e=>setSampleNight(Number(e.target.value))} className="border border-gray-200 rounded-lg px-2 py-1 w-14 text-center text-sm focus:ring-2 focus:ring-sky-200 outline-none"/>
+              <span className="text-gray-400 text-xs">組</span>
+            </div>
+          )}
+          <button type="button" onClick={applySample} className="bg-gradient-to-r from-sky-500 to-indigo-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow hover:shadow-md active:scale-[0.97] transition-all">
+            全日に適用
+          </button>
+        </div>
+        <p className="text-[10px] text-sky-600 mt-1.5">※ 既存の入力値を上書きします。個別に調整したい日は適用後に直接編集してください。</p>
+      </div>
+
+      <p className="text-xs text-gray-400">各セルを直接編集して日別の人数を調整できます。</p>
       <div className="overflow-x-auto border border-gray-200 rounded-lg">
         <table className="text-xs sm:text-sm border-collapse w-max">
           <thead><tr>
-            <th className="sticky left-0 z-10 bg-gray-50 border-b border-r border-gray-200 px-2 py-2 min-w-[64px] text-gray-600 text-left">勤務</th>
+            <th className="sticky left-0 z-10 bg-gray-50 border-b border-r border-gray-200 px-2 py-2 min-w-[72px] text-gray-600 text-left">勤務</th>
             {days.map(d=>{const{cls,dow,holiday}=dayHeaderClass(year,month,d);return(
               <th key={d} className={`border-b border-gray-200 px-1 py-1 min-w-[36px] text-center ${cls}`}>
                 <div className="font-bold">{d}</div><div className="font-normal text-[10px]">{dow}</div>
@@ -587,12 +671,21 @@ function ReqPanel({year,month,dailyReqs,setDailyReqs,enabledWork,nightEnabled,cu
               </td>))}
             </tr>))}
             {nightEnabled&&(<>
-              <tr className="hover:bg-indigo-50/20"><td className="sticky left-0 z-10 bg-white border-b border-r border-gray-200 px-2 py-1"><Pill st="semi_night"/></td>
+              <tr className="hover:bg-indigo-50/20">
+                <td className="sticky left-0 z-10 bg-white border-b border-r border-gray-200 px-2 py-1 whitespace-nowrap">
+                  <div className="flex items-center gap-1"><Pill st="semi_night"/><span className="text-[9px] text-gray-400">＊</span></div>
+                </td>
                 {days.map(d=>(<td key={d} className="border-b border-gray-100 px-0 py-0"><input type="number" min={0} max={99} value={getReq(d).night||0} onChange={e=>setReq(d,"night",Number(e.target.value))} className="w-full px-1 py-1.5 text-center text-sm bg-transparent hover:bg-indigo-50 focus:bg-indigo-50 outline-none transition"/></td>))}
               </tr>
-              <tr className="hover:bg-violet-50/20"><td className="sticky left-0 z-10 bg-white border-b border-r border-gray-200 px-2 py-1"><Pill st="deep_night"/></td>
+              <tr className="hover:bg-violet-50/20">
+                <td className="sticky left-0 z-10 bg-white border-b border-r border-gray-200 px-2 py-1 whitespace-nowrap">
+                  <div className="flex items-center gap-1"><Pill st="deep_night"/><span className="text-[9px] text-gray-400">＊</span></div>
+                </td>
                 {days.map(d=>(<td key={d} className="border-b border-gray-100 px-0 py-0"><input type="number" min={0} max={99} value={getReq(d).night||0} onChange={e=>setReq(d,"night",Number(e.target.value))} className="w-full px-1 py-1.5 text-center text-sm bg-transparent hover:bg-violet-50 focus:bg-violet-50 outline-none transition"/></td>))}
               </tr>
+              <tr><td colSpan={days.length+1} className="px-2 py-1 bg-indigo-50/30 text-[10px] text-indigo-600 italic">
+                ＊ 準夜・深夜は「1夜勤セット = 準夜1名 + 深夜1名」の組数で入力してください。両行は連動しています。
+              </td></tr>
             </>)}
           </tbody>
         </table>

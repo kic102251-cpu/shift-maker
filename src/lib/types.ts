@@ -135,6 +135,20 @@ export const DEFAULT_ENABLED: Record<string, boolean> = {
 export type ShiftTargets = Partial<Record<ShiftType, number>>;
 export const DEFAULT_TARGETS: ShiftTargets = { day:14, night:2 };
 
+/* ── Skill Level ── */
+export type SkillLevel = "rookie" | "mid" | "leader";
+export const SKILL_LEVEL_LABELS: Record<SkillLevel, string> = {
+  rookie: "新人",
+  mid:    "中堅",
+  leader: "リーダー",
+};
+/** Badge color for each skill level */
+export const SKILL_LEVEL_COLORS: Record<SkillLevel, string> = {
+  rookie: "bg-amber-100 text-amber-700",
+  mid:    "bg-sky-100 text-sky-700",
+  leader: "bg-purple-100 text-purple-700",
+};
+
 /* ── Attendance & Employment ── */
 export type AttendancePattern = "full" | "weekday_only" | "custom";
 export type EmploymentType = "fulltime" | "part" | "short";
@@ -160,6 +174,15 @@ export interface Staff {
   attendance: AttendancePattern;
   customDays: boolean[];
   employment: EmploymentType;
+  /** Years of nursing experience (used for skill balancing). Default 0. */
+  experienceYears?: number;
+  /** Whether this staff can serve as a shift leader. Default false. */
+  canLead?: boolean;
+  /**
+   * 3-tier skill label. "mid" is the safe default for old data.
+   * Scheduler uses this for night-skill balance independent of canLead/experienceYears.
+   */
+  skillLevel?: SkillLevel;
 }
 
 /* ── Preference ── */
@@ -178,7 +201,14 @@ export interface ShiftAssignment {
 }
 
 /* ── Daily requirement ── */
-export type DailyRequirement = Partial<Record<ShiftType, number>>;
+/**
+ * Per-day required counts. Keys are shift types (e.g. "day","night","early"),
+ * plus the special key "leaders" = minimum number of staff with canLead=true
+ * who must be working on that day (across any work shift).
+ */
+export type DailyRequirement = Partial<Record<ShiftType, number>> & {
+  leaders?: number;
+};
 
 export const WEEKDAY_TEMPLATE: DailyRequirement = { day:5, night:2 };
 export const WEEKEND_TEMPLATE: DailyRequirement = { day:3, night:2 };
